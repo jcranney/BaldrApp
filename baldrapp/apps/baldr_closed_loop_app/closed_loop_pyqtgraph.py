@@ -802,8 +802,7 @@ def load_model_from_pickle(filename):
 ## REAL TIME SIMULATION APP 
 ####################
 
-if __name__ == "__main__":
-    
+def main(): 
     # # configure our zwfs 
     # grid_dict = {
     #     "D":1, # diameter of beam 
@@ -1145,3 +1144,6 @@ if __name__ == "__main__":
         self.plot_widget = pg.GraphicsLayoutWidget()
         self.layout.addWidget(self.plot_widget)
 """
+
+if __name__ == "__main__":
+    main()

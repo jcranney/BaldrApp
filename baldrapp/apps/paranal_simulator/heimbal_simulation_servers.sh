@@ -26,7 +26,7 @@ set -euo pipefail
 # --- Config ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GIT_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
-VENV_PATH="${GIT_ROOT}/venv/bin/activate"
+VENV_PATH="${GIT_ROOT}/.venv/bin/activate"
 
 cd "$SCRIPT_DIR"
 
@@ -50,7 +50,7 @@ declare -A PROCS=(
   [sim_mdm_server]="tail -f /dev/null | ./sim_mdm_server"
   [fake_zmq_server]="bash -c '${PY_PREFIX} && python -u fake_asgard_ZMQ_CRED1_server.py'"
   [baldr_sim]="bash -c '${PY_PREFIX} && python -u ${SIM_SCRIPT}'"
-  [lab_mdm_gui]="bash -c 'source \"${VENV_PATH}\" && lab-MDM-control'"
+  # [lab_mdm_gui]="bash -c 'source \"${VENV_PATH}\" && lab-MDM-control'"
   [shmview_gui]="bash -c 'source \"${VENV_PATH}\" && shmview /dev/shm/cred1.im.shm'"
   [baldr_sim_gui]="bash -c '${PY_PREFIX} && python -u ${GUI_SCRIPT}'"
 )
@@ -60,7 +60,7 @@ START_ORDER=(
   sim_mdm_server
   fake_zmq_server
   baldr_sim
-  lab_mdm_gui
+  # lab_mdm_gui
   shmview_gui
   baldr_sim_gui
 )

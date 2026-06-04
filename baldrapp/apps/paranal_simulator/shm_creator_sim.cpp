@@ -184,42 +184,6 @@ int create_image(const std::string& name, int width, int height, int datatype, i
 
     return ret;
 }
-// int create_image(const std::string& name, int width, int height, int datatype, int nbsem) {
-//     IMAGE* img = (IMAGE*) malloc(sizeof(IMAGE));
-//     if (!img) {
-//         std::cerr << "ERROR: malloc failed\n";
-//         return -1;
-//     }
-
-//     uint32_t dims[2] = { static_cast<uint32_t>(width), static_cast<uint32_t>(height) };
-//     int status = ImageStreamIO_createIm_gpu(
-//         img, name.c_str(), 2, dims, datatype,
-//         -1, 1,  // NBkw = -1 (disable), shared = 1 (SHM), 
-//         nbsem, 0, 0);  // NBkw, CBflag, Zflag
-
-//     if (status != 0) {
-//         std::cerr << "ERROR: Failed to create image " << name << "\n";
-//     }
-
-//     free(img);
-//     return status;
-// }
-// // int create_image(const std::string& name, int width, int height, int datatype, int nbsem) {
-// //     IMAGE img;
-// //     uint32_t dims[2] = { static_cast<uint32_t>(width), static_cast<uint32_t>(height) };
-
-// //     return ImageStreamIO_createIm(&img, name.c_str(), 2, dims, datatype, nbsem, 0);
-// // }
-// // // int create_image(const std::string& shm_name, int width, int height, int datatype, int nbsem) {
-// // //     IMAGE image;
-// // //     uint32_t size[2] = { static_cast<uint32_t>(width), static_cast<uint32_t>(height) };
-// // //     return ImageStreamIO_createIm(&image, shm_name.c_str(), 2, size, datatype, 1, 0);
-// // // }
-// // // // int create_image(const std::string& shm_name, int width, int height, int datatype, int nbsem) {
-// // // //     remove(shm_name.c_str());  // clean existing
-// // // //     std::cout << "Creating " << shm_name << " [" << width << " x " << height << "]\n";
-// // // //     return ImageStreamIO_createIm(shm_name.c_str(), width, height, datatype, nbsem);
-// // // // }
 
 #include <unistd.h>
 #include <limits.h>
@@ -239,7 +203,7 @@ std::string get_executable_dir() {
 std::string get_json_path() {
     std::string exe_dir = get_executable_dir();
     // binary lives in dcs/simulation → go up one, then into asgard-cred1-server
-    return exe_dir + "/../asgard-cred1-server/cred1_split.json";
+    return "/home/jcranney/git/dcs/asgard-cred1-server/cred1_split.json";
 }
 
 int main() {

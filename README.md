@@ -7,7 +7,7 @@ Various modules and examples for testing end-to-end a ZWFS. Optionally includes,
 python
 import baldrapp
 ```
-## Installation
+## Installation with `pip`
 ```
 pip install baldrapp
 ```
@@ -21,6 +21,16 @@ git clone https://github.com/courtney-barrer/BaldrApp
 ```
 The pip installation was tested on only on python 3.12.7. 
 
+## Installation with Nix `flake`s
+If you are using Nix for package management, you can initialise a `devShell` with all the required dependencies, and installing the python package and GUIs using:
+```bash
+nix develop
+```
+
+This will also give you a shell alias to allow you to start and stop the simulator, e.g.:
+```bash
+heimbal-sim start  # to start the simulator
+```
 
 ## VLTI/Baldr Simulator Architecture
 

@@ -19,11 +19,14 @@
         wayland
         dbus
         freetype
+        uv
         nlohmann_json
       ];
       # QT_DEBUG_PLUGINS = 1;
       shellHook = ''
-        zsh
+        uv sync
+        source .venv/bin/activate
+        alias heimbal-sim="$(pwd)/baldrapp/apps/paranal_simulator/heimbal_simulation_servers.sh"
       '';
       LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath packages;
     };

@@ -35,6 +35,30 @@ python baldrapp/playground/onsky_sims/baldr_CL_sim.py \
   --baldr-lag-frames 1 \
   --include-shotnoise \
   --frames-per-output-file 10000
+
+
+python baldrapp/playground/onsky_sims/baldr_CL_sim.py \
+  --config baldrapp/playground/onsky_sims/baldr_naomi_fast_mono_config_v2.json \
+  --outdir baldr_json_im_then_ao_test \
+  --output test_baldr_closed_loop_1000_tt_watchdog.h5 \
+  --control-modes 50 \ 
+  --first-stage-gain 0.4 \
+  --first-stage-leak 0.99 \
+  --gain 0.2 \
+  --leak 0.98 \ 
+  --control-sign 1 \
+  --n-frames 1000 \
+  --target-pre-naomi-rms-nm 600 \
+  --tt-rms-nm 80 \
+  --tt-frequencies-hz 15 \
+  --tt-axis tilt \
+  --reset-on-fail \
+  --reset-rms-threshold-nm 400 \
+  --first-stage-lag-frames 2 \
+  --baldr-lag-frames 1 \
+  --include-shotnoise \
+  --frames-per-output-file 10000
+
 """
 
 from __future__ import annotations
@@ -721,6 +745,15 @@ def run_ao_simulation(outdir, zwfs, cfg, amp, opd_internal, detector, use_pyzeld
         )
         reco_lag.append(reco)
 
+
+    # Initialize the first-stage applied correction (2D phase map)
+    first_stage_U = np.zeros_like(zwfs.grid.pupil_mask, dtype=float)
+    
+    # Initialize the lag queue for the first stage measurements. 
+    # If lag is N frames, we need N empty measurements in the queue to start.
+    fs_lag_frames = max(1, args.first_stage_lag_frames)
+    fs_error_queue = [np.zeros_like(first_stage_U) for _ in range(fs_lag_frames)]
+
     modal_state = np.zeros(n_modes)
     baldr_lag_frames = max(0, int(args.baldr_lag_frames))
     baldr_error_lag = [np.zeros(n_modes) for _ in range(baldr_lag_frames)]
@@ -907,6 +940,7 @@ def run_ao_simulation(outdir, zwfs, cfg, amp, opd_internal, detector, use_pyzeld
             for _ in range(max(1, args.rows_per_frame)):
                 scrn.add_row()
 
+            # new 
             _, reco_now = bldr.first_stage_ao(
                 scrn,
                 Nmodes_removed=int(args.first_stage_modes),
@@ -914,14 +948,37 @@ def run_ao_simulation(outdir, zwfs, cfg, amp, opd_internal, detector, use_pyzeld
                 phase_scaling_factor=phase_scaling_factor,
                 return_reconstructor=True,
             )
-            if args.first_stage_lag_frames > 0:
-                reco_lag.append(reco_now)
-                reco_use = reco_lag.pop(0)
-            else:
-                reco_use = reco_now
 
+            # 2. The WFS measurement is the open-loop projection minus the currently applied DM shape
+            current_measurement = reco_now - first_stage_U
+            
+            # 3. Push measurement to the delay queue and pop the oldest one
+            fs_error_queue.append(current_measurement)
+            delayed_measurement = fs_error_queue.pop(0)
+
+            # 4. Update the leaky integrator state
+            first_stage_U = (args.first_stage_leak * first_stage_U) + (args.first_stage_gain * delayed_measurement)
+
+            # 5. Calculate the phases entering the second stage
             pre_phase = phase_scaling_factor * scrn.scrn * basis[0]
-            post_phase = basis[0] * (phase_scaling_factor * scrn.scrn - reco_use)
+            post_phase = basis[0] * (pre_phase - first_stage_U)
+
+            # _, reco_now = bldr.first_stage_ao(
+            #     scrn,
+            #     Nmodes_removed=int(args.first_stage_modes),
+            #     basis=basis,
+            #     phase_scaling_factor=phase_scaling_factor,
+            #     return_reconstructor=True,
+            # )
+            # if args.first_stage_lag_frames > 0:
+            #     reco_lag.append(reco_now)
+            #     reco_use = reco_lag.pop(0)
+            # else:
+            #     reco_use = reco_now
+
+            # pre_phase = phase_scaling_factor * scrn.scrn * basis[0]
+            # post_phase = basis[0] * (phase_scaling_factor * scrn.scrn - reco_use)
+
             opd_pre = (wvl0 / (2 * np.pi)) * pre_phase
             opd_post = (wvl0 / (2 * np.pi)) * post_phase
 
@@ -1170,6 +1227,9 @@ def main():
     p.add_argument("--reset-rms-threshold-nm", type=float, default=250.0, help="Failure threshold for after-Baldr residual RMS in nm. If exceeded, reset DM/control loop.")
     p.add_argument("--reset-hold-frames", type=int, default=0, help="Optional number of frames to hold DM flat after a reset before reclosing.")
     p.add_argument("--max-loop-resets", type=int, default=1000000, help="Maximum allowed loop resets before raising an error.")
+
+    p.add_argument("--first-stage-gain", type=float, default=0.4, help="Loop gain for the first stage AO leaky integrator.")
+    p.add_argument("--first-stage-leak", type=float, default=0.99, help="Integrator leak for the first stage AO.")
 
     args = p.parse_args()
     args.outdir.mkdir(parents=True, exist_ok=True)

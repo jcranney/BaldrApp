@@ -1,0 +1,73 @@
+# 0 ==================
+Run the simulation and write h5 files (which are lighter weight and easier to access sections) 
+from (venv) (base) rtc@rtc:~/Documents/BaldrApp$ :
+
+python baldrapp/playground/onsky_sims/baldr_CL_sim.py \
+  --config baldrapp/playground/onsky_sims/baldr_naomi_fast_mono_config_v2.json   
+  --outdir baldr_json_im_then_ao_test  \
+  --output test_baldr_closed_loop_1000_tt_watchdog.h5 \
+  --control-modes 50 \
+  --gain 0.2 \ 
+  --leak 0.98 \ 
+  --control-sign 1 \ 
+  --n-frames 100000 \
+  --target-pre-naomi-rms-nm 600 \ 
+  --tt-rms-nm 80 \ 
+  --tt-frequencies-hz 15 \ 
+  --tt-axis tilt  \
+  --reset-on-fail \ 
+  --reset-rms-threshold-nm 400 \  
+  --first-stage-lag-frames 2 \  
+  --baldr-lag-frames 1 \
+  --include-shotnoise  \
+  --frames-per-output-file 10000
+
+copied 00-09 batches to downloads on anu mac
+then analysis
+
+# 1 ==================
+plot the results to sanity check Baldr performance 
+discount boundary pixels on phasescreen since these tend to go crazy
+(warrents investigation)
+
+python baldrapp/playground/onsky_sims/analysis_scripts/plot_baldr_h5_batches_inner_mask.py \
+  --input-dir /Users/bencb/Downloads \
+  --stem test_baldr_closed_loop_1000_tt_watchdog \
+  --part-start 0 \
+  --part-stop 9 \
+  --outdir /Users/bencb/Downloads/batch_summary_inner_mask \
+  --boundary-erosion-pixels 2 \
+  --drop-invalid \
+  --smooth-frames 10
+
+# 2 ==================
+make a video to actually look visually at the post baldr phasescreens
+
+python baldrapp/playground/onsky_sims/analysis_scripts/make_baldr_residual_movie_batches.py \
+  --input-dir ~/Downloads \
+  --stem test_baldr_closed_loop_1000_tt_watchdog \
+  --part-start 0 \
+  --part-stop 9 \
+  --output ~/Downloads/baldr_residual_phase_movie_parts0000_0009.mp4 \
+  --drop-reset \
+  --drop-invalid \
+  --frame-stride 30 \
+  --movie-fps 40
+
+# note , we could also make a movie with the ZWFS image, DM command and output phase 
+
+# 3 ==================
+generate the plain fits file with only baldr phasescreens (dropping invalid flag where baldr reset / open )
+
+python baldrapp/playground/onsky_sims/analysis_scripts/merge_baldr_h5_residuals_to_fits_cube_only_masked.py \
+  --input-dir ~/Downloads/ \
+  --stem test_baldr_closed_loop_1000_tt_watchdog \
+  --part-start 0 \
+  --part-stop 9 \
+  --output ~/Downloads/post_baldr_residual_cube_parts0000_0009_noresets.fits \
+  --drop-invalid \
+  --overwrite
+
+we can also write fits with more complete telemetry from the h5 files
+using :
+baldrapp/playground/onsky_sims/analysis_scripts/merge_baldr_h5_residuals_to_fits_masked.py

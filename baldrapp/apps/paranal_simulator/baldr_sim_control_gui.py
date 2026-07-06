@@ -205,6 +205,25 @@ class BaldrSimControlGui(QtWidgets.QMainWindow):
         self.apply_coldstop_button = QtWidgets.QPushButton("Apply cold-stop offset")
         self.reset_offsets_button = QtWidgets.QPushButton("Reset offsets")
 
+        # offset_layout.addWidget(QtWidgets.QLabel("D mirror edge:"), 0, 0)
+        # offset_layout.addWidget(self.edge_offset_spin, 0, 1)
+        # offset_layout.addWidget(self.apply_edge_button, 0, 2)
+
+        # offset_layout.addWidget(QtWidgets.QLabel("Cold stop X:"), 1, 0)
+        # offset_layout.addWidget(self.coldstop_x_spin, 1, 1)
+        # offset_layout.addWidget(QtWidgets.QLabel("Cold stop Y:"), 2, 0)
+        # offset_layout.addWidget(self.coldstop_y_spin, 2, 1)
+        # offset_layout.addWidget(self.apply_coldstop_button, 1, 2, 2, 1)
+
+        # pupil mis-conjugation 
+        self.pupil_misconj_spin = QtWidgets.QDoubleSpinBox()
+        self.pupil_misconj_spin.setRange(-500.0, 500.0)
+        self.pupil_misconj_spin.setDecimals(3)
+        self.pupil_misconj_spin.setSingleStep(1.0)
+        self.pupil_misconj_spin.setSuffix(" mm")
+
+        self.apply_pupil_misconj_button = QtWidgets.QPushButton("Apply pupil misconj.")
+
         offset_layout.addWidget(QtWidgets.QLabel("D mirror edge:"), 0, 0)
         offset_layout.addWidget(self.edge_offset_spin, 0, 1)
         offset_layout.addWidget(self.apply_edge_button, 0, 2)
@@ -215,7 +234,30 @@ class BaldrSimControlGui(QtWidgets.QMainWindow):
         offset_layout.addWidget(self.coldstop_y_spin, 2, 1)
         offset_layout.addWidget(self.apply_coldstop_button, 1, 2, 2, 1)
 
-        offset_layout.addWidget(self.reset_offsets_button, 3, 0, 1, 3)
+        offset_layout.addWidget(QtWidgets.QLabel("Pupil misconj.:"), 3, 0)
+        offset_layout.addWidget(self.pupil_misconj_spin, 3, 1)
+        offset_layout.addWidget(self.apply_pupil_misconj_button, 3, 2)
+
+        offset_layout.addWidget(self.reset_offsets_button, 4, 0, 1, 3)
+
+        # offset_layout.addWidget(QtWidgets.QLabel("D mirror edge:"), 0, 0)
+        # offset_layout.addWidget(self.edge_offset_spin, 0, 1)
+        # offset_layout.addWidget(self.apply_edge_button, 0, 2)
+
+        # offset_layout.addWidget(QtWidgets.QLabel("Cold stop X:"), 1, 0)
+        # offset_layout.addWidget(self.coldstop_x_spin, 1, 1)
+        # offset_layout.addWidget(QtWidgets.QLabel("Cold stop Y:"), 2, 0)
+        # offset_layout.addWidget(self.coldstop_y_spin, 2, 1)
+        # offset_layout.addWidget(self.apply_coldstop_button, 1, 2, 2, 1)
+
+        # offset_layout.addWidget(QtWidgets.QLabel("Pupil misconj.:"), 3, 0)
+        # offset_layout.addWidget(self.pupil_misconj_spin, 3, 1)
+        # offset_layout.addWidget(self.apply_pupil_misconj_button, 3, 2)
+
+        # offset_layout.addWidget(self.reset_offsets_button, 4, 0, 1, 3)
+
+
+        # offset_layout.addWidget(self.reset_offsets_button, 3, 0, 1, 3)
 
         controls_layout.addWidget(offset_group)
 
@@ -264,7 +306,9 @@ class BaldrSimControlGui(QtWidgets.QMainWindow):
         self.apply_edge_button.clicked.connect(self.apply_edge_offset)
         self.apply_coldstop_button.clicked.connect(self.apply_coldstop_offset)
         self.reset_offsets_button.clicked.connect(lambda: self.send_control("reset_offsets"))
-
+        self.apply_pupil_misconj_button.clicked.connect(
+            self.apply_pupil_misconjugation
+        )
         self.fpm_in_button.clicked.connect(self.fpm_in_selected)
         self.fpm_out_button.clicked.connect(self.fpm_out_selected)
         self.fpm_in_all_button.clicked.connect(self.fpm_in_all)
@@ -378,6 +422,10 @@ class BaldrSimControlGui(QtWidgets.QMainWindow):
         y_um = self.coldstop_y_spin.value()
         self.send_control(f"set coldstop_offset_um {x_um:.6f} {y_um:.6f}")
 
+    def apply_pupil_misconjugation(self):
+        value_mm = self.pupil_misconj_spin.value()
+        self.send_control(f"set pupil_misconjugation_mm {value_mm:.6f}")
+        
     def selected_beam(self):
         return int(self.beam_combo.currentText())
 
@@ -394,8 +442,8 @@ class BaldrSimControlGui(QtWidgets.QMainWindow):
 
         # Requires fake_asgard_ZMQ_CRED1_server.py to support this.
         # If it returns NOK, add fpm_out handling to the fake MDS server next.
-        self.send_mds(f"fpm_out {beam}")
-
+        #self.send_mds(f"fpm_out {beam}")
+        self.send_mds(f"moverel BMX{beam} 10") # just does a small offset, the MDS registers that this is off the mask so changes state to phasemask "out"
     def fpm_in_all(self):
         mask = self.selected_mask()
         for beam in BEAMS:
@@ -403,7 +451,8 @@ class BaldrSimControlGui(QtWidgets.QMainWindow):
 
     def fpm_out_all(self):
         for beam in BEAMS:
-            self.send_mds(f"fpm_out {beam}")
+            #self.send_mds(f"fpm_out {beam}")
+            self.send_mds(f"moverel BMX{beam} 10") # just does a small offset, the MDS registers that this is off the mask so changes state to phasemask "out"
 
     def fpm_where_selected(self):
         beam = self.selected_beam()

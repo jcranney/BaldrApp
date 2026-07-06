@@ -1,4 +1,5 @@
 import numpy as np 
+from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -155,27 +156,106 @@ def insert_concentric(smaller_array, larger_array):
     return result_array
 
 
-
-def get_phasemask_phaseshift( wvl, depth, dot_material = 'N_1405' ):
+def get_phasemask_phaseshift(
+    wvl,
+    depth,
+    dot_material="N_1405",
+    extrapolate=True,
+):
     """
-    wvl is wavelength in micrometers
-    depth is the physical depth of the phasemask in micrometers
-    dot material is the material of phaseshifting object
+    Return the phase shift of a physical phase mask.
 
-    it is assumed phasemask is in air (n=1).
-    N_1405 is photoresist used for making phasedots in Sydney
+    Parameters
+    ----------
+    wvl : float or ndarray
+        Wavelength in micrometers.
+    depth : float
+        Physical phase-mask depth in micrometers.
+    dot_material : str
+        Material name. Currently supports "N_1405".
+    extrapolate : bool
+        If True, linearly extrapolate the material index outside the available
+        tabulated wavelength range.
+
+    Notes
+    -----
+    The material optical-constants table is read only once per material /
+    extrapolation mode and cached as an interp1d object.
     """
-    #print( 'reminder wvl input should be um!')
-    if dot_material == 'N_1405':
-        # wavelengths in csv file are in nanometers
-        df = pd.read_csv('baldrapp/data/Exposed_Ma-N_1405_optical_constants.txt', sep='\s+', header=1)
-        f = interp1d(df['Wavelength(nm)'], df['n'], kind='linear',fill_value=np.nan, bounds_error=False)
-        n = f( wvl * 1e3 ) # convert input wavelength um - > nm
-        phaseshift = 2 * np.pi/ wvl  * depth * (n -1)
-        return( phaseshift )
+    if not hasattr(get_phasemask_phaseshift, "_interp_cache"):
+        get_phasemask_phaseshift._interp_cache = {}
+
+    cache = get_phasemask_phaseshift._interp_cache
+
+    cache_key = (str(dot_material), bool(extrapolate))
+
+    if cache_key not in cache:
+        optical_constants_path = (
+            Path(__file__).resolve().parent.parent
+            / "data"
+            / "Exposed_Ma-N_1405_optical_constants.txt"
+        )
+
+        if dot_material == "N_1405":
+            df = pd.read_csv(optical_constants_path, sep=r"\s+", header=1)
+
+            fill_value = "extrapolate" if extrapolate else np.nan
+
+            cache[cache_key] = interp1d(
+                df["Wavelength(nm)"],
+                df["n"],
+                kind="linear",
+                bounds_error=False,
+                fill_value=fill_value,
+            )
+        else:
+            raise TypeError(
+                "No corresponding dot material for given input. Try N_1405."
+            )
+
+    f_n = cache[cache_key]
+
+    wvl = np.asarray(wvl, dtype=float)
+    depth = float(depth)
+
+    n = f_n(wvl * 1e3)  # input um -> nm
+    phaseshift = 2 * np.pi / wvl * depth * (n - 1)
+
+    return phaseshift
+
+# def get_phasemask_phaseshift( wvl, depth, dot_material = 'N_1405', extrapolate=True ):
+#     """
+#     wvl is wavelength in micrometers
+#     depth is the physical depth of the phasemask in micrometers
+#     dot material is the material of phaseshifting object
+
+#     it is assumed phasemask is in air (n=1).
+#     N_1405 is photoresist used for making phasedots in Sydney
+#     """
     
-    else:
-        raise TypeError('No corresponding dot material for given input. Try N_1405.')
+
+#     optical_constants_path = (
+#         Path(__file__).resolve().parent.parent
+#         / "data"
+#         / "Exposed_Ma-N_1405_optical_constants.txt"
+#     )
+
+
+#     #print( 'reminder wvl input should be um!')
+#     if dot_material == 'N_1405':
+#         # wavelengths in csv file are in nanometers
+#         #df = pd.read_csv(optical_constants_path, sep='\s+', header=1)
+#         df = pd.read_csv(optical_constants_path, sep=r'\s+', header=1)
+#         if extrapolate:
+#             f = interp1d(df['Wavelength(nm)'], df['n'], kind='linear',bounds_error=False, fill_value="extrapolate" ) #fill_value=np.nan, bounds_error=False)
+#         else:
+#             f = interp1d(df['Wavelength(nm)'], df['n'], kind='linear',fill_value=np.nan, bounds_error=False)
+#         n = f( wvl * 1e3 ) # convert input wavelength um - > nm
+#         phaseshift = 2 * np.pi/ wvl  * depth * (n -1)
+#         return( phaseshift )
+    
+#     else:
+#         raise TypeError('No corresponding dot material for given input. Try N_1405.')
 
 
 

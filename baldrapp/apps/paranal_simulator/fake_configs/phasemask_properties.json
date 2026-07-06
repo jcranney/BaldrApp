@@ -1,0 +1,86 @@
+
+{
+  "phasemask": {
+    "default_mask": "J3",
+
+    "masks": {
+      "J1": {
+        "theta_model": "physical_depth",
+        "mask_depth_um": 0.474,
+        "dot_material": "N_1405",
+        "diameter_model": "physical",
+        "mask_diam_um": 32.0
+      },
+
+      "J2": {
+        "theta_model": "physical_depth",
+        "mask_depth_um": 0.474,
+        "dot_material": "N_1405",
+        "diameter_model": "physical",
+        "mask_diam_um": 36.0
+      },
+
+      "J3": {
+        "theta_model": "physical_depth",
+        "mask_depth_um": 0.474,
+        "dot_material": "N_1405",
+        "diameter_model": "physical",
+        "mask_diam_um": 44.0
+      },
+
+      "J4": {
+        "theta_model": "physical_depth",
+        "mask_depth_um": 0.474,
+        "dot_material": "N_1405",
+        "diameter_model": "physical",
+        "mask_diam_um": 54.0
+      },
+      "J5": {
+        "theta_model": "physical_depth",
+        "mask_depth_um": 0.474,
+        "dot_material": "N_1405",
+        "diameter_model": "physical",
+        "mask_diam_um": 65.0
+      },
+      "H1": {
+        "theta_model": "physical_depth",
+        "mask_depth_um": 0.654,
+        "dot_material": "N_1405",
+        "diameter_model": "physical",
+        "mask_diam_um": 31.0
+      },
+
+      "H2": {
+        "theta_model": "physical_depth",
+        "mask_depth_um": 0.654,
+        "dot_material": "N_1405",
+        "diameter_model": "physical",
+        "mask_diam_um": 37.0
+      },
+
+      "H3": {
+        "theta_model": "physical_depth",
+        "mask_depth_um": 0.654,
+        "dot_material": "N_1405",
+        "diameter_model": "physical",
+        "mask_diam_um": 44.0
+      },
+
+      "H4": {
+        "theta_model": "physical_depth",
+        "mask_depth_um": 0.654,
+        "dot_material": "N_1405",
+        "diameter_model": "physical",
+        "mask_diam_um": 53.0
+      },
+      "H5": {
+        "theta_model": "physical_depth",
+        "mask_depth_um": 0.654,
+        "dot_material": "N_1405",
+        "diameter_model": "physical",
+        "mask_diam_um": 68.0
+      }
+
+    }
+  }
+}

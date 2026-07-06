@@ -1,204 +1,202 @@
 {
   "meta": {
-    "name": "baldr_fresnel_polychromatic_paranal_median",
-    "description": "Generic Baldr configuration with Fresnel relay, blackbody spectrum, Kolmogorov turbulence, optional first-stage AO, and scintillation.",
+    "name": "baldr_naomi_fast_monochromatic_closed_loop",
+    "description": "Fast monochromatic Baldr closed-loop config for standalone Naomi residual phase-screen generation. Detector/Fresnel/polychromatic propagation disabled so get_frame_configured returns full wave-space intensity matching the pupil grid.",
     "version": 1
   },
-
   "grid": {
     "telescope": "solarstein",
     "D": 1.8,
     "N": 64,
     "dim": 256
   },
-
   "optics": {
-    "wvl0": 1.65e-6,
+    "wvl0": 1.65e-06,
     "F_number": 21.2,
     "mask_diam": 1.06,
     "mask_diam_mode": "lambda_over_D",
-
     "theta": 1.5707963267948966,
     "theta_mode": "constant",
-
     "coldstop_diam": 8.4,
-    "coldstop_offset": [0, 0]
+    "coldstop_offset": [
+      0,
+      0
+    ]
+  },
+  "stellar": {
+    "bandwidth": 300.0,
+    "bandwidth_unit": "nm",
+    "spectrum": {
+      "enabled": false,
+      "mode": "monochromatic",
+      "temperature_K": 1900.0,
+      "weighting": "photon",
+      "wvl_min": 1.65e-06,
+      "wvl_max": 1.66e-06,
+      "n_wvl": 1,
+      "normalize": "sum"
+    }
+  },
+  "source_profiles": {
+    "internal": {
+      "flux_model": "photon_density",
+      "photons_per_second_per_pixel_per_nm": 1000.0,
+      "temperature_K": 3000.0
+    },
+    "onsky": {
+      "flux_model": "photon_density",
+      "photons_per_second_per_pixel_per_nm": 500.0,
+      "temperature_K": 4500.0
+    }
+  },
+  "dm": {
+    "dm_model": "BMC-multi-3.5",
+    "actuator_coupling_factor": 0.75,
+    "dm_pitch": 1.0,
+    "dm_aoi": 0.0,
+    "opd_per_cmd": 3e-06,
+    "flat_rmse": 0.0
+  },
+  "fresnel_relay": {
+    "enabled": false,
+    "D_entrance": 0.012,
+    "f_oap": 0.254,
+    "f_coll": 0.04,
+    "z_to_mirror": 0.5,
+    "D_mirror": 0.0254,
+    "edge_offset": -0.001,
+    "edge_angle": 0.0,
+    "f_imaging": 0.184,
+    "D_coldstop": 0.002145,
+    "coldstop_x_offset": 0.0,
+    "coldstop_y_offset": 0.0,
+    "D_detector_pupil": 0.000288,
+    "pupil_misconjugation": 0.0,
+    "use_nominal_pupil_conjugation": true,
+    "z_mirror_to_lens": null
   },
   "source": {
     "flux_mode": "photons_per_second_per_pixel_per_nm",
     "photons_per_second_per_pixel_per_nm": 1000.0,
     "renormalize_to_pupil_mean": true
   },
-  "stellar": {
-    "bandwidth": 300.0,
-    "bandwidth_unit": "nm",
-
-    "spectrum": {
-      "enabled": true,
-      "mode": "blackbody",
-      "temperature_K": 1900.0,
-      "weighting": "photon",
-      "wvl_min": 1.5e-6,
-      "wvl_max": 1.8e-6,
-      "n_wvl": 7,
-      "normalize": "sum"
-    }
-  },
-"source_profiles": {
-  "internal": {
-    "flux_model": "photon_density",
-    "photons_per_second_per_pixel_per_nm": 1000.0,
-    "temperature_K": 3000.0
-  },
-  "onsky": {
-    "flux_model": "photon_density",
-    "photons_per_second_per_pixel_per_nm": 500.0,
-    "temperature_K": 4500.0
-  }
-},
-  "dm": {
-    "dm_model": "BMC-multi-3.5",
-    "actuator_coupling_factor": 0.75,
-    "dm_pitch": 1.0,
-    "dm_aoi": 0.0,
-    "opd_per_cmd": 3.0e-6,
-    "flat_rmse": 0.0
-  },
-
-  "fresnel_relay": {
-    "enabled": true, 
-    "D_entrance": 0.012,
-    "f_oap": 0.254,
-    "f_coll": 0.040,
-
-    "z_to_mirror": 0.50,
-    "D_mirror": 0.0254,
-    "edge_offset": -0.001,
-    "edge_angle": 0.0,
-
-    "f_imaging": 0.184,
-    "D_coldstop": 0.002145,
-    "coldstop_x_offset": 0.0,
-    "coldstop_y_offset": 0.0,
-
-    "D_detector_pupil": 0.000288,
-    "pupil_misconjugation": 0.0,
-
-    "use_nominal_pupil_conjugation": true,
-    "z_mirror_to_lens": null
-  },
-
-
   "detector": {
-    "enabled": true,
-    "binning": 4,
+    "enabled": false,
+    "binning": 1,
     "dit": 0.001,
-    "ron": 0.1,
-    "qe": 0.7,
-
-    "crop_to_pixels": [32, 32],
-    "crop_after_detection": true,
-
-    "adu_offset": 1000.0,
-    "noise_std_adu": 100.0,
-    "include_shotnoise": true,
-    "include_readnoise": true
+    "ron": 0.0,
+    "qe": 1.0,
+    "crop_to_pixels": null,
+    "crop_after_detection": false,
+    "adu_offset": 0.0,
+    "noise_std_adu": 0.0,
+    "include_shotnoise": false,
+    "include_readnoise": false,
+    "note": "Disabled for fast modal closed-loop script; otherwise get_frame_configured implicitly bins to detector shape and no longer matches the full-grid pupil mask."
   },
-
   "internal_aberrations": {
     "enabled": true,
-
     "static_opd_mode": "none",
-
     "dm_flat": {
       "enabled": false,
       "use_dm_flat_from_model": false
     },
-
     "parabolic_scratches": {
       "enabled": false,
-      "list_a": [0.1],
-      "list_b": [0.0],
-      "list_c": [-2.0],
-      "width_list_dx_factor": [2.0],
-      "depth_list_m": [1.0e-7]
+      "list_a": [
+        0.1
+      ],
+      "list_b": [
+        0.0
+      ],
+      "list_c": [
+        -2.0
+      ],
+      "width_list_dx_factor": [
+        2.0
+      ],
+      "depth_list_m": [
+        1e-07
+      ]
     }
   },
-
   "atmosphere": {
-    "enabled": true,
-
+    "enabled": false,
     "phase": {
-      "enabled": true,
+      "enabled": false,
       "model": "kolmogorov",
       "r0_500_m": 0.126,
       "tau0_500_s": 0.003,
       "L0_m": 25.0,
-
-      "reference_wavelength_m": 5.0e-7,
+      "reference_wavelength_m": 5e-07,
       "evolve_method": "frozen_flow",
       "wind_speed_m_per_s": null,
       "wind_direction_deg": 0.0,
-
       "random_seed": 2,
       "rows_per_frame": 1,
       "phase_scaling_factor": 1.0
     },
-
     "scintillation": {
-      "enabled": true,
+      "enabled": false,
       "model": "single_high_altitude_phase_screen",
-
       "r0_500_m": 0.126,
       "L0_m": 25.0,
-      "reference_wavelength_m": 5.0e-7,
-
+      "reference_wavelength_m": 5e-07,
       "propagation_distance_m": 10000.0,
       "random_seed": 3,
       "rows_per_frame": 1,
-
       "renormalize_mean_intensity": true,
       "clip_negative_intensity": true
     }
   },
-
   "first_stage_ao": {
-    "enabled": true,
+    "enabled": false,
     "model": "modal_removal",
-
     "basis": "zernike",
     "Nmodes_removed": 14,
-
     "apply_to": "phase",
     "lag_frames": 0,
     "correction_gain": 1.0,
-
     "remove_piston": true,
-    "phase_scaling_factor": 1.0
+    "phase_scaling_factor": 1.0,
+    "note": "Naomi-like post-AO residual is generated directly in the standalone script; no full atmospheric/first-stage simulation is applied here."
   },
-
   "simulator_runtime": {
-    "active_beams": [1, 2, 3, 4],
+    "active_beams": [
+      1
+    ],
     "nrs": 5,
     "sleep_time_s": 0.01,
-
     "shared_memory": {
       "cred1_global": "/dev/shm/cred1.im.shm",
       "baldr_template": "/dev/shm/baldr{beam}.im.shm",
       "dm_template": "/dev/shm/dm{beam}.im.shm",
       "split_json": "baldrapp/apps/paranal_simulator/fake_configs/cred1_split.json"
     },
-
     "servers": {
       "camera_zmq": "tcp://127.0.0.1:6667",
       "mds_zmq": "tcp://127.0.0.1:5555"
     },
-
     "phasemask": {
       "default_mask": "H3",
       "properties_file": "baldrapp/apps/paranal_simulator/fake_configs/phasemask_properties.json",
       "verbose": true,
       "mask_out_theta": 0.0
-      }
-    }
+    },
+    "note": "Unused by the standalone closed-loop script."
+  },
+  "standalone_closed_loop": {
+    "frame_rate_hz": 1000.0,
+    "n_frames_default": 100000,
+    "baldr_control_modes_nonpiston_zernike": 14,
+    "noise_modes_nonpiston_zernike": 10,
+    "low_order_1_over_f_total_rms_nm": 50.0,
+    "tt_vibration_total_rms_nm": 50.0,
+    "tt_vibration_lines_hz": [
+      15.0,
+      50.0
+    ],
+    "output_units": "nm OPD",
+    "recommended_script": "run_baldr_naomi_fast_closed_loop_v2.py"
+  }
 }

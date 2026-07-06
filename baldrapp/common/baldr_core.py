@@ -3288,7 +3288,6 @@ def get_N0( opd_input,  amp_input ,  opd_internal,  zwfs_ns , detector=None, inc
 
     return Intensity
 
-
 def get_N0_configured(
     opd_input,
     amp_input,
@@ -3310,21 +3309,34 @@ def get_N0_configured(
 
         zwfs_ns.dm.current_cmd = zwfs_ns.dm.dm_flat
         phase-mask phase shift theta = 0
+        active physical/chromatic phasemask disabled, if present
 
-    The previous DM command and phase-mask setting are restored afterwards.
+    The previous DM command and phase-mask state are restored afterwards.
 
-    This wrapper uses get_frame_configured(...), so it supports the same routing:
+    This wrapper uses get_frame_configured(...), so it supports:
 
         non-Fresnel monochromatic
         non-Fresnel polychromatic
         Fresnel monochromatic
         Fresnel polychromatic
-
-    This is preferred over legacy get_N0(...) for simulations using Fresnel
-    propagation or explicit spectral integration.
     """
     original_cmd = zwfs_ns.dm.current_cmd.copy()
-    original_theta = zwfs_ns.optics.theta
+
+    # Legacy optics state.
+    original_theta = getattr(zwfs_ns.optics, "theta", None)
+    original_theta_mode = getattr(zwfs_ns.optics, "theta_mode", "constant")
+
+    # New physical/chromatic phasemask state.
+    had_active_phasemask = hasattr(zwfs_ns.optics, "active_phasemask")
+    original_active_phasemask = (
+        zwfs_ns.optics.active_phasemask if had_active_phasemask else None
+    )
+
+    # Optional runtime diagnostics / current mask label.
+    had_current_mask = hasattr(zwfs_ns.optics, "current_mask")
+    original_current_mask = (
+        zwfs_ns.optics.current_mask if had_current_mask else None
+    )
 
     # pyZELDA compatibility, if present.
     has_pyzelda = hasattr(zwfs_ns, "pyZelda")
@@ -3334,12 +3346,23 @@ def get_N0_configured(
         original_mask_depth = None
 
     try:
+        # Use flat DM for the reference.
         zwfs_ns.dm.current_cmd = zwfs_ns.dm.dm_flat.copy()
 
-        # For the generic analytic path, theta=0 removes the phase mask.
+        # Generic analytic/Fresnel path: theta=0 removes the phase-mask effect.
         zwfs_ns.optics.theta = 0.0
+        zwfs_ns.optics.theta_mode = "constant"
 
-        # For pyZELDA, also force the physical mask depth to zero if possible.
+        # Critical for the new physical/chromatic mask path:
+        # remove active_phasemask so spec.theta_at_wavelength(...) cannot
+        # recompute a non-zero physical-depth theta during polychromatic N0.
+        if had_active_phasemask:
+            delattr(zwfs_ns.optics, "active_phasemask")
+
+        # Optional diagnostic label while this temporary state is active.
+        zwfs_ns.optics.current_mask = ""
+
+        # pyZELDA path: also force the physical mask depth to zero if possible.
         if has_pyzelda and original_mask_depth is not None:
             zwfs_ns.pyZelda._mask_depth = 0.0
 
@@ -3358,11 +3381,110 @@ def get_N0_configured(
         )
 
     finally:
+        # Restore DM command.
         zwfs_ns.dm.current_cmd = original_cmd
-        zwfs_ns.optics.theta = original_theta
 
+        # Restore legacy optics state.
+        if original_theta is None:
+            if hasattr(zwfs_ns.optics, "theta"):
+                delattr(zwfs_ns.optics, "theta")
+        else:
+            zwfs_ns.optics.theta = original_theta
+
+        zwfs_ns.optics.theta_mode = original_theta_mode
+
+        # Restore active physical/chromatic phasemask state.
+        if had_active_phasemask:
+            zwfs_ns.optics.active_phasemask = original_active_phasemask
+        else:
+            if hasattr(zwfs_ns.optics, "active_phasemask"):
+                delattr(zwfs_ns.optics, "active_phasemask")
+
+        # Restore current-mask diagnostic label.
+        if had_current_mask:
+            zwfs_ns.optics.current_mask = original_current_mask
+        else:
+            if hasattr(zwfs_ns.optics, "current_mask"):
+                delattr(zwfs_ns.optics, "current_mask")
+
+        # Restore pyZELDA mask depth.
         if has_pyzelda and original_mask_depth is not None:
             zwfs_ns.pyZelda._mask_depth = original_mask_depth
+            
+# def get_N0_configured(
+#     opd_input,
+#     amp_input,
+#     opd_internal,
+#     zwfs_ns,
+#     detector=None,
+#     include_shotnoise=True,
+#     use_pyZelda=False,
+#     spectral_bandwidth=_AUTO_SPECTRAL_BANDWIDTH,
+#     force_fresnel=None,
+#     force_polychromatic=None,
+#     return_intermediates=False,
+# ):
+#     """
+#     Generate the Baldr clear-pupil reference intensity N0 using the configured
+#     propagation path.
+
+#     N0 is the phase-mask-out reference intensity. It is evaluated with:
+
+#         zwfs_ns.dm.current_cmd = zwfs_ns.dm.dm_flat
+#         phase-mask phase shift theta = 0
+
+#     The previous DM command and phase-mask setting are restored afterwards.
+
+#     This wrapper uses get_frame_configured(...), so it supports the same routing:
+
+#         non-Fresnel monochromatic
+#         non-Fresnel polychromatic
+#         Fresnel monochromatic
+#         Fresnel polychromatic
+
+#     This is preferred over legacy get_N0(...) for simulations using Fresnel
+#     propagation or explicit spectral integration.
+#     """
+#     original_cmd = zwfs_ns.dm.current_cmd.copy()
+#     original_theta = zwfs_ns.optics.theta
+
+#     # pyZELDA compatibility, if present.
+#     has_pyzelda = hasattr(zwfs_ns, "pyZelda")
+#     if has_pyzelda and hasattr(zwfs_ns.pyZelda, "_mask_depth"):
+#         original_mask_depth = zwfs_ns.pyZelda._mask_depth
+#     else:
+#         original_mask_depth = None
+
+#     try:
+#         zwfs_ns.dm.current_cmd = zwfs_ns.dm.dm_flat.copy()
+
+#         # For the generic analytic path, theta=0 removes the phase mask.
+#         zwfs_ns.optics.theta = 0.0
+
+#         # For pyZELDA, also force the physical mask depth to zero if possible.
+#         if has_pyzelda and original_mask_depth is not None:
+#             zwfs_ns.pyZelda._mask_depth = 0.0
+
+#         return get_frame_configured(
+#             opd_input=opd_input,
+#             amp_input=amp_input,
+#             opd_internal=opd_internal,
+#             zwfs_ns=zwfs_ns,
+#             detector=detector,
+#             include_shotnoise=include_shotnoise,
+#             use_pyZelda=use_pyZelda,
+#             spectral_bandwidth=spectral_bandwidth,
+#             force_fresnel=force_fresnel,
+#             force_polychromatic=force_polychromatic,
+#             return_intermediates=return_intermediates,
+#         )
+
+#     finally:
+#         zwfs_ns.dm.current_cmd = original_cmd
+#         zwfs_ns.optics.theta = original_theta
+
+#         if has_pyzelda and original_mask_depth is not None:
+#             zwfs_ns.pyZelda._mask_depth = original_mask_depth
 
 
 def get_b(phi, amp, phasemask_diameter, phasemask_mask, fplane_pixels=300, pixels_across_mask=10, detector = None):
@@ -5555,6 +5677,15 @@ def init_zwfs_from_json(
 
     # Attach optional metadata/runtime sections.
     zwfs_ns = cfghelp.attach_optional_config_sections(zwfs_ns, cfg)
+
+
+    # Optional runtime source profiles.
+    # This is metadata for higher-level simulators. It is not interpreted here,
+    # so old configs remain fully backwards compatible.
+    if "source_profiles" in cfg:
+        zwfs_ns.source_profiles = cfghelp.dict_to_namespace_recursive(
+            cfg["source_profiles"]
+        )
 
     # Detector config/object.
     # Detector instantiation stays here, not in config_helper.py, because the

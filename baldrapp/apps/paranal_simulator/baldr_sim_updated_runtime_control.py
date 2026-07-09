@@ -13,8 +13,7 @@ import numpy as np
 import json
 import zmq
 import time
-import os
-from xaosim.shmlib import shm
+from xaosim.shmlib import shm  # type: ignore
 import subprocess
 from pathlib import Path
 
@@ -22,7 +21,9 @@ from baldrapp.common import baldr_core as bldr
 from baldrapp.common import utilities as util
 from baldrapp.common import phasescreens as ps
 from baldrapp.common import spectrum as spec
-import pyzelda.ztools as ztools
+import pyzelda.ztools as ztools  # type: ignore
+from types import SimpleNamespace
+from typing import Dict, Optional
 
 ############### ADDING IN TO TRY FIX PHASEMASK CHANGE ISSUES
 
@@ -504,7 +505,7 @@ def make_first_stage_ao_basis(zwfs, n_modes_removed):
 
     basis = np.array(
         [
-            util.insert_concentric(np.nan_to_num(b, 0.0), basis_template)
+            util.insert_concentric(np.nan_to_num(b, nan=0.0), basis_template)
             for b in basis_cropped
         ]
     )
@@ -1115,7 +1116,7 @@ config_path = (
 # The configured frame dispatcher will automatically use:
 #   - polychromatic propagation if zwfs.spectrum.enabled and n_wvl > 1
 #   - Fresnel relay propagation if zwfs.fresnel_relay.enabled is True
-zwfs_ns = {beam: None for beam in [1, 2, 3, 4]}
+zwfs_ns: Dict[int, SimpleNamespace] = {}
 amp_input = {}
 opd_internal = {}
 original_optics_state = {}
@@ -1185,18 +1186,21 @@ for beam in [1, 2, 3, 4]:
 
 default_tel = 1
 use_pyZelda = False
+default_zwfs = zwfs_ns[default_tel]
+if default_zwfs is None:
+    raise RuntimeError(f"zwfs_ns[{default_tel}] not initialised")
 
 print("\n=== Baldr simulator optical configuration ===")
 print("config_path:", config_path)
-print("grid N:", zwfs_ns[default_tel].grid.N)
-print("grid dim:", zwfs_ns[default_tel].grid.dim)
-print("detector binning:", zwfs_ns[default_tel].detector.binning)
+print("grid N:", default_zwfs.grid.N)
+print("grid dim:", default_zwfs.grid.dim)
+print("detector binning:", default_zwfs.detector.binning)
 print(
-    "stellar.bandwidth [nm]:", getattr(zwfs_ns[default_tel].stellar, "bandwidth", None)
+    "stellar.bandwidth [nm]:", getattr(default_zwfs.stellar, "bandwidth", None)
 )
-print("spectrum wavelengths [um]:", zwfs_ns[default_tel].spectrum.wavelengths * 1e6)
-print("sum spectrum weights_nm:", np.sum(zwfs_ns[default_tel].spectrum.weights_nm))
-print("fresnel enabled:", getattr(zwfs_ns[default_tel].fresnel_relay, "enabled", None))
+print("spectrum wavelengths [um]:", default_zwfs.spectrum.wavelengths * 1e6)
+print("sum spectrum weights_nm:", np.sum(default_zwfs.spectrum.weights_nm))
+print("fresnel enabled:", getattr(default_zwfs.fresnel_relay, "enabled", None))
 print(
     "atmosphere phase enabled:", dynamic_atmosphere_state[default_tel]["phase_enabled"]
 )
@@ -1213,10 +1217,10 @@ print("scintillation enabled:", dynamic_atmosphere_state[default_tel]["scint_ena
 # ============================================================
 
 # Prefer split JSON from simulator_runtime config if present.
-runtime_cfg = getattr(zwfs_ns[default_tel], "simulator_runtime", None)
+runtime_cfg = getattr(default_zwfs, "simulator_runtime", None)
 shared_memory_cfg = getattr(runtime_cfg, "shared_memory", None)
 
-source_profiles = getattr(zwfs_ns[default_tel], "source_profiles", None)
+source_profiles = getattr(default_zwfs, "source_profiles", None)
 
 if source_profiles is None:
     print(
@@ -1266,8 +1270,8 @@ for beam in [1, 2, 3, 4]:
 # SHM initialisation
 # ============================================================
 
-baldr_sub_shms = {beam: None for beam in [1, 2, 3, 4]}
-dm_shms = {beam: None for beam in [1, 2, 3, 4]}
+baldr_sub_shms = {}
+dm_shms = {}
 
 f_cred1_global = get_cfg_value(
     shared_memory_cfg,
@@ -1310,25 +1314,19 @@ ctx = zmq.Context()
 # Simulator runtime-control socket. A GUI/client can connect here to toggle
 # on-sky/internal mode and adjust Fresnel alignment parameters without editing
 # the JSON config or restarting the simulator.
+
 sim_control = make_initial_sim_control()
-# runtime_status = {
+
+runtime_status = {}
 #     "frame": None,
 #     "cnt0": None,
 #     "cnt1": None,
 #     "last_beam1_intensity_sum": None,
 #     "last_beam1_subim_sum": None,
+#     "source_profile": None,
+#     "source_flux_density": None,
+#     "source_temperature_K": None,
 # }
-
-runtime_status = {
-    "frame": None,
-    "cnt0": None,
-    "cnt1": None,
-    "last_beam1_intensity_sum": None,
-    "last_beam1_subim_sum": None,
-    "source_profile": None,
-    "source_flux_density": None,
-    "source_temperature_K": None,
-}
 
 control_zmq = get_cfg_value(
     getattr(runtime_cfg, "servers", None),
@@ -1350,7 +1348,7 @@ cam_socket.send_string('cli "gain"')
 print("Camera reply:", cam_socket.recv_string())
 
 # TODO: query camera server for offset/noise when available.
-det_cfg = getattr(zwfs_ns[default_tel], "detector_config", None)
+det_cfg = getattr(default_zwfs, "detector_config", None)
 adu_offset = float(get_cfg_value(det_cfg, "adu_offset", 1000.0))
 noise_std = float(get_cfg_value(det_cfg, "noise_std_adu", 100.0))
 include_shotnoise = bool(get_cfg_value(det_cfg, "include_shotnoise", True))
@@ -1440,14 +1438,14 @@ sleep_time_s = float(get_cfg_value(runtime_cfg, "sleep_time_s", 0.01))
 
 beams_shown = [1]  # [1, 2, 3, 4]
 
-last_mask_name = {beam: None for beam in [1, 2, 3, 4]}
+last_mask_name = {}
 
 
 # ============================================================
 # Initial source profile
 # ============================================================
 
-last_source_profile = {beam: None for beam in [1, 2, 3, 4]}
+last_source_profile = {}
 
 if source_profiles is not None:
     desired_profile = desired_source_profile_from_mode(sim_control)
@@ -1470,7 +1468,7 @@ if source_profiles is not None:
 
     runtime_status["source_profile"] = desired_profile
     runtime_status["source_flux_density"] = get_photon_flux_density_from_config(
-        zwfs_ns[default_tel]
+        default_zwfs
     )
     runtime_status["source_temperature_K"] = get_cfg_value(
         profile,
@@ -1528,7 +1526,7 @@ while True:
                 # This should not happen under the fixed-grid convention.
                 # If it ever does, force the phasemask state/cache to rebuild.
                 if not np.array_equal(old_wavelengths, new_wavelengths):
-                    last_mask_name[beam] = None
+                    last_mask_name[beam] = ""
                     print(
                         f"[SOURCE] wavelength grid changed for beam {beam}; "
                         "forcing phasemask cache rebuild",

@@ -16,7 +16,7 @@ authors = [
 ]
 license = "MIT"
 dependencies = [
-    "astropy>=7.2.0",
+    "astropy>=8.0.1",
     "matplotlib>=3.10.9",
     "numpy>=2.4.6",
     "pandas>=3.0.3",
@@ -26,6 +26,7 @@ dependencies = [
     "pyzelda",
     "scikit-image>=0.26.0",
     "scipy>=1.17.1",
+    "scipy-stubs>=1.17.1.5",
     "shmview>=0.0.10",
     "streamlit>=1.58.0",
     "zmq>=0.0.0",

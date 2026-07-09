@@ -6,18 +6,18 @@ import os
 # import json
 from pathlib import Path
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
 from types import SimpleNamespace
 from scipy.stats import pearsonr
 from scipy.signal import TransferFunction, bode
 from scipy.ndimage import binary_erosion
 import datetime
-from astropy.io import fits
+from astropy.io import fits  # type: ignore
 import time
 import pickle
-import pyzelda.zelda as zelda
-import pyzelda.ztools as ztools
-import pyzelda.utils.mft as mft
-import pyzelda.utils.aperture as aperture
+import pyzelda.zelda as zelda  # type: ignore
+import pyzelda.ztools as ztools  # type: ignore
+import pyzelda.utils.aperture as aperture  # type: ignore
 from . import utilities as util
 from . import DM_basis
 from . import phasescreens
@@ -26,6 +26,9 @@ from . import DM_registration
 from . import config_helper as cfghelp
 from . import spectrum as spec
 from . import fresnel
+from abc import ABC, abstractmethod
+from typing import Tuple, Optional, Dict
+from numpy.typing import NDArray
 
 """
 1/11/25 - updated get_pupil_intensity to use fft and not mft for speed, added coldstop diam and coldstop_offset as input argunments removes and remove precomupted mask 
@@ -42,7 +45,7 @@ _AUTO_SPECTRAL_BANDWIDTH = "auto"
 
 def _resolve_detector_spectral_bandwidth(
     zwfs_ns,
-    spectral_bandwidth=_AUTO_SPECTRAL_BANDWIDTH,
+    spectral_bandwidth: Optional[float | str] = _AUTO_SPECTRAL_BANDWIDTH,
 ):
     """
     Resolve the bandwidth passed to detect(...).
@@ -57,7 +60,10 @@ def _resolve_detector_spectral_bandwidth(
         Treat the input image as already spectrally integrated.
     """
     if spectral_bandwidth != _AUTO_SPECTRAL_BANDWIDTH:
-        return spectral_bandwidth
+        if type(spectral_bandwidth) is float:
+            return spectral_bandwidth
+        else:
+            raise ValueError('spectral bandwidth must be either float, "auto", or None')
 
     if hasattr(zwfs_ns, "stellar") and hasattr(zwfs_ns.stellar, "bandwidth"):
         return zwfs_ns.stellar.bandwidth
@@ -217,7 +223,7 @@ class PIDController:
 class LeakyIntegrator:
     def __init__(self, ki=None, lower_limit=None, upper_limit=None, kp=None):
         # If no arguments are passed, initialize with default values
-        if ki is None:
+        if ki is None or lower_limit is None or upper_limit is None or kp is None:
             self.ki = []
             self.lower_limit = []
             self.upper_limit = []
@@ -452,7 +458,13 @@ class detector:
         return np.clip(noisy_intensity, 0, np.inf)
 
 
-class StrehlModel:
+class StrehlModelGeneric(ABC):
+    name: str
+    detector_pupilmask: SimpleNamespace
+    N0: NDArray
+
+
+class StrehlModel(StrehlModelGeneric):
     def __init__(
         self,
         model_description="Linear regression model fitting intensities to Strehl ratio.",
@@ -473,10 +485,10 @@ class StrehlModel:
         Fits the linear model of the form y = sum(alpha_i * x_i) + intercept using the normal equation.
 
         Args:
-            X (np.ndarray): A 3D matrix of shape (M, N, K) where M is the number of data points,
+            X (NDArray): A 3D matrix of shape (M, N, K) where M is the number of data points,
                             and N x K is the grid of pixel intensities (best if they are normalized! ).
-            y (np.ndarray): A vector of shape (M,) corresponding to the measured Strehl ratio.
-            pixel_filter (np.ndarray): A boolean array of shape (N, K) that defines which pixels to use in the model.
+            y (NDArray): A vector of shape (M,) corresponding to the measured Strehl ratio.
+            pixel_filter (NDArray): A boolean array of shape (N, K) that defines which pixels to use in the model.
         """
         # Ensure the pixel_filter has the correct shape
         assert (
@@ -515,11 +527,11 @@ class StrehlModel:
         Applies the fitted linear model to new 3D data.
 
         Args:
-            X (np.ndarray): A 3D matrix of shape (M_new, N, K) where M_new is the number of new data points,
+            X (NDArray): A 3D matrix of shape (M_new, N, K) where M_new is the number of new data points,
                             and N x K is the grid of pixel intensities.
 
         Returns:
-            np.ndarray: The predicted Strehl ratio for each new data point.
+            NDArray: The predicted Strehl ratio for each new data point.
         """
         if self.coefficients is None or self.intercept is None:
             raise ValueError("Model has not been fitted yet.")
@@ -563,7 +575,7 @@ class StrehlModel:
             pickle.dump(self, file)
 
 
-class PixelWiseStrehlModel:
+class PixelWiseStrehlModel(StrehlModelGeneric):
     def __init__(
         self,
         model_description="Linear regression model fitting intensities to Strehl ratio.",
@@ -579,10 +591,10 @@ class PixelWiseStrehlModel:
         The final model will just apply the average prediction from each pixel
 
         Args:
-            X (np.ndarray): A 3D matrix of shape (M, N, K) where M is the number of data points,
+            X (NDArray): A 3D matrix of shape (M, N, K) where M is the number of data points,
                             and N x K is the grid of pixel intensities.
-            y (np.ndarray): A vector of shape (M,) corresponding to the measured Strehl ratio.
-            pixel_filter (np.ndarray): A boolean array of shape (N, K) that defines which pixels to use in the model.
+            y (NDArray): A vector of shape (M,) corresponding to the measured Strehl ratio.
+            pixel_filter (NDArray): A boolean array of shape (N, K) that defines which pixels to use in the model.
         """
         # Ensure the pixel_filter has the correct shape
         assert (
@@ -623,11 +635,11 @@ class PixelWiseStrehlModel:
         Applies the fitted linear model to new data and returns the estimated Strehl ratio.
 
         Args:
-            X (np.ndarray): A 3D matrix of shape (M_new, N, K) where M_new is the number of new data points,
+            X (NDArray): A 3D matrix of shape (M_new, N, K) where M_new is the number of new data points,
                             and N x K is the grid of pixel intensities.
 
         Returns:
-            np.ndarray: The predicted Strehl ratio for each new data point (M_new,).
+            NDArray: The predicted Strehl ratio for each new data point (M_new,).
         """
         if self.m is None or self.S0 is None or self.pixel_indices is None:
             raise ValueError("Model has not been fitted yet.")
@@ -658,12 +670,8 @@ class PixelWiseStrehlModel:
         Prints a description of the model.
         """
         print(f"Model Description: {self.model_description}")
-        if self.coefficients is not None and self.intercept is not None:
-            print(f"Coefficients: {self.coefficients}")
-            print(f"Intercept: {self.intercept}")
-            print(f"Pixel Indices (P_s): {self.pixel_indices}")
-        else:
-            print("Model has not been fitted yet.")
+        # JCR: removed block that called non-existent attributes
+        print("Model has not been fitted yet.")
 
     # Function to save the model to a pickle file
     def save_model_to_pickle(self, filename):
@@ -868,7 +876,7 @@ def roll_screen_on_dm(
     basis_template = np.zeros(zwfs_ns.pyZelda.pupil.shape)
     basis = np.array(
         [
-            util.insert_concentric(np.nan_to_num(b, 0), basis_template)
+            util.insert_concentric(np.nan_to_num(b, nan=0), basis_template)
             for b in basis_cropped
         ]
     )
@@ -1008,10 +1016,8 @@ def calibrate_strehl_model(
 
     print(f"USING ---- {model_type} ----")
 
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%dT%H.%M.%S")
     if save_results_path is not None:
-
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%dT%H.%M.%S")
-
         save_results_path = os.path.join(
             save_results_path, f"strehl_model_config-{zwfs_ns.name}_{timestamp}", ""
         )
@@ -1040,7 +1046,7 @@ def calibrate_strehl_model(
     basis_template = np.zeros(zwfs_ns.pyZelda.pupil.shape)
     basis = np.array(
         [
-            util.insert_concentric(np.nan_to_num(b, 0), basis_template)
+            util.insert_concentric(np.nan_to_num(b, nan=0), basis_template)
             for b in basis_cropped
         ]
     )
@@ -1800,24 +1806,6 @@ def generate_dm_coordinates(Nx=12, Ny=12, spacing=1.0):
     return coords, flattened_indices, coord_to_index
 
 
-def get_nearest_actuator(x, y, flattened_indices):
-    """
-    Finds the nearest actuator index for a given (x, y) coordinate.
-
-    Args:
-        x, y: The (x, y) coordinates to match to the nearest actuator.
-        flattened_indices: A dictionary mapping actuator indices to (x, y) coordinates.
-
-    Returns:
-        Nearest actuator index.
-    """
-    distances = {
-        index: np.sqrt((x - coord[0]) ** 2 + (y - coord[1]) ** 2)
-        for index, coord in flattened_indices.items()
-    }
-    return min(distances, key=distances.get)
-
-
 def actuator_to_xy(actuator_index, flattened_indices):
     """
     Given an actuator index, return the corresponding (x, y) coordinates.
@@ -2284,7 +2272,7 @@ def get_pupil_intensity(
     return_field=False,
     return_terms=False,
     debug=False,
-):
+) -> NDArray | Dict:
     """
     ZWFS pupil intensity with analytic output field and focal-plane cold stop.
     Tilt-safe for even-sized inputs: internally pads to odd size to avoid half-pixel centering errors,
@@ -2446,7 +2434,8 @@ def get_pupil_intensity(
 
     # ---------------- returns ----------------
     if return_terms or return_field:
-        out = {"Ic": Ic}
+        out: Dict[str, NDArray | float] = {}
+        out["Ic"] = Ic
         if return_field:
             out["field_pupil"] = psi_out
         if return_terms:
@@ -2816,7 +2805,11 @@ def init_zwfs(grid_ns, optics_ns, dm_ns):
 
 
 def first_stage_ao(
-    atm_scrn, Nmodes_removed, basis, phase_scaling_factor=1, return_reconstructor=False
+    atm_scrn,
+    Nmodes_removed,
+    basis,
+    phase_scaling_factor: float = 1,
+    return_reconstructor=False,
 ):
     """_summary_
 
@@ -2835,7 +2828,7 @@ def first_stage_ao(
         Nmodes_removed (int): Number of Zernike modes removed in first stage ao
         basis (list of 2D arrays): Zernike basis function on the input atm_scrn pupil footprint
             IMPORTANT - basis[0] should be the pupil disk without secondary mirror
-        phase_scaling_factor (int, optional): _description_. Defaults to 1. to scale the phase screen before projecting onto Zernike modes
+        phase_scaling_factor (float, optional): _description_. Defaults to 1. to scale the phase screen before projecting onto Zernike modes
         return_reco (bool) : return the reconstructor if you want to add latency in the simulation
     """
     pupil_disk = basis[
@@ -3010,7 +3003,7 @@ def average_subarrays(array, block_size):
     return averaged_subarrays
 
 
-def sum_subarrays(array, block_size):
+def sum_subarrays(array: NDArray, block_size: Tuple[int, int]) -> NDArray:
     """
     Averages non-overlapping sub-arrays of a given 2D NumPy array.
 
@@ -3046,7 +3039,15 @@ def calculate_detector_binning_factor(
     return binning
 
 
-def detect(i, binning, qe, dit, ron=0, include_shotnoise=True, spectral_bandwidth=None):
+def detect(
+    i: NDArray,
+    binning: Tuple[int, int],
+    qe: float,
+    dit: float,
+    ron: float = 0.0,
+    include_shotnoise=True,
+    spectral_bandwidth: Optional[float] = None,
+) -> NDArray:
     """
     Convert an input photon-rate image into a detected detector frame.
 
@@ -3177,7 +3178,7 @@ def detect(i, binning, qe, dit, ron=0, include_shotnoise=True, spectral_bandwidt
         binning (tuple): _description_ binning factor (rows to sum, columns to sum) 
         qe (scalar): _description_ quantum efficiency of detector
         dit (scalar): _description_ integration time of detector
-        ron (int, optional): _description_. Defaults to 1. readout noise in electrons per pixel
+        ron (float, optional): _description_. Defaults to 1. readout noise in electrons per pixel
         include_shotnoise (bool, optional): _description_. Defaults to True. Sample poisson distribution for each pixel (input intensity is the expected value)
         spectral_bandwidth (_type_, optional): _description_. Defaults to None. if spectral_bandwidth is None than returns photons per pixel per nm of input light,
     """
@@ -3288,7 +3289,8 @@ def get_I0(
             pixels_across_mask=zwfs_ns.focal_plane.pixels_across_mask,
             phasemask_mask=None,
         )
-        # get_pupil_intensity( phi = phi, theta = zwfs_ns.optics.theta, phasemask=zwfs_ns.grid.phasemask_mask, amp=amp_input )
+
+    assert type(Intensity) is np.ndarray
 
     if detector is not None:
         if not hasattr(zwfs_ns, "stellar"):
@@ -3372,7 +3374,7 @@ def get_N0(
     detector=None,
     include_shotnoise=True,
     use_pyZelda=True,
-):
+) -> NDArray:
     """_summary_
     ## LEGACY - you should use get_N0_configured now now which can handle fresnel propagaation and polychromatic spectrum consistently from config file
     propagates the input field with phase described by opd_input and internal aberrations described by opd_internal, field flux described by amp_input
@@ -3451,6 +3453,7 @@ def get_N0(
             pixels_across_mask=zwfs_ns.focal_plane.pixels_across_mask,
             phasemask_mask=None,
         )
+    assert type(Intensity) is np.ndarray
 
     if detector is not None:
         if not hasattr(zwfs_ns, "stellar"):
@@ -3863,6 +3866,7 @@ def estimate_clear_pupil_onsky(
 
     scint_scrn_new = None
     if include_scintillation:
+        assert aotools_module is not None
         scint_scrn_new = (
             aotools_module.turbulence.infinitephasescreen.PhaseScreenVonKarman(
                 nx_size=zwfs_ns.grid.dim,
@@ -3927,8 +3931,8 @@ def estimate_clear_pupil_onsky(
         # --- scintillation amplitude ---
         if include_scintillation:
             for _k in range(int(jumps_per_iter)):
-                scint_scrn_new.add_row()
-
+                scint_scrn_new.add_row()  # type: ignore
+            assert update_scintillation_fn is not None
             amp_scint = update_scintillation_fn(
                 high_alt_phasescreen=scint_scrn_new,
                 pxl_scale=dx,
@@ -4065,7 +4069,7 @@ def get_frame(
             pixels_across_mask=zwfs_ns.focal_plane.pixels_across_mask,
             phasemask_mask=None,
         )  # phasemask_mask = None since with fft we dont keep fixed fourier plane sampling and just init phasemask each iteration... its still quicker than mft!
-
+    assert type(Intensity) is np.ndarray
     # if detector is not None:
     #     if not hasattr(zwfs_ns, 'stellar') :
     #         raise ValueError("zwfs_ns must have a stellar attribute to get spectral bandwidth (zwfs_ns.stellar.bandwidth )")
@@ -4436,7 +4440,7 @@ def register_DM_in_pixelspace_from_IM(zwfs_ns, plot_intermediate_results=True):
             outer_size=12, inner_offset=4, without_outer_corners=True
         )
     else:
-        print("CASE NOT MATCHED  d['I2M'].data.shape = { d['I2M'].data.shape}")
+        raise ValueError(f"CASE NOT MATCHED shape = {zwfs_ns.reco.IM.shape}")
 
     img_4_corners = []
     dm_4_corners = []
@@ -4770,7 +4774,8 @@ def reco_method(
     # B_LO = zwfs_ns.reco.M2C_0[:LO, :].T   # (140, LO)
 
     reco_dict = {}
-
+    inv_HO_dict = {}
+    inv_LO_dict = {}
     if "zonal" in HO_inv_method.lower():
         print(
             "---------------\n\n Since you selected 'zonal' for HO inversion method, we can only do this on the DM interpolated space, so do not consider pixel space!\n\n"
@@ -4937,11 +4942,15 @@ def reco_method(
         # -------------------------
         # LO INVERSION (raw)
         # -------------------------
+
+        I2M_LO_raw = None
+        M2C_LO_raw = None
         if LO == 0:  # we only have one reconstructor
             I2M_LO = None
             M2C_LO = None
             inv_LO_dict = {"method": None, "note": "LO disabled (LO=0)"}
         else:  # we do LO matricies
+            assert IM_LO is not None
             if ("eigen" in LO_inv_method.lower()) or ("pinv" in LO_inv_method.lower()):
                 # physical LO amplitudes from measurement: e_LO = pinv(IM_LO) @ s
                 # IM_LO is (Nmeas, LO) -> pinv is (LO, Nmeas)
@@ -4987,6 +4996,7 @@ def reco_method(
                     Ca = np.array(Ca, dtype=float)
                     if Ca.shape != (n_modes, n_modes):
                         raise ValueError(f"Ca must be ({n_modes},{n_modes})")
+                assert type(Ca) is np.ndarray
                 # H = IM_LO is (Nmeas, LO)
                 H = IM_LO
 
@@ -5020,7 +5030,7 @@ def reco_method(
             M2C_HO = M2C_HO_raw
             inv_HO_dict["proj"] = None
         else:
-
+            assert IM_LO is not None
             if project_out_of_LO is not None:
                 raise UserWarning("project_out_of_LO not implemented yet")
 
@@ -5109,13 +5119,11 @@ def reco_method(
                 inv_HO_dict["proj"] = None
 
         if LO == 0:
-            I2M_LO_raw = None
-            M2C_LO_raw = None
             I2M_LO = None
             M2C_LO = None
             inv_LO_dict = {"method": None, "note": "LO disabled (LO=0)"}
         else:
-
+            assert type(I2M_LO_raw) is np.ndarray
             # define LO outputs consistently (no projection here yet)
             I2M_LO = I2M_LO_raw
             # M2C_LO = M2C_LO_raw
@@ -5246,8 +5254,10 @@ def plot_eigenmodes(
     # THE IMAGE MODES
     n_row = round(np.sqrt(zwfs_ns.reco.M2C_0.shape[0])) - 1
     fig, ax = plt.subplots(n_row, n_row, figsize=(30, 30))
+
     plt.subplots_adjust(hspace=0.1, wspace=0.1)
-    for i, axx in enumerate(ax.reshape(-1)):
+    for i, axx in enumerate(np.array(ax).reshape(-1)):
+        assert type(axx) is Axes
         # we filtered circle on grid, so need to put back in grid
         tmp = zwfs_ns.pupil_regions.pupil_filt.copy()
         vtgrid = np.zeros(tmp.shape)
@@ -5278,7 +5288,7 @@ def plot_eigenmodes(
     # if zonal M2C is just identity matrix.
     fig, ax = plt.subplots(n_row, n_row, figsize=(30, 30))
     plt.subplots_adjust(hspace=0.1, wspace=0.1)
-    for i, axx in enumerate(ax.reshape(-1)):
+    for i, axx in enumerate(np.array(ax).reshape(-1)):
         axx.imshow(util.get_DM_command_in_2D(zwfs_ns.reco.M2C_0.T @ U.T[i]))
         # axx.set_title(f'mode {i}, S={round(S[i]/np.max(S),3)}')
         axx.text(1, 2, f"{i}", color="w", fontsize=6)
@@ -5433,6 +5443,8 @@ def add_controllers_for_zonal_interp_no_projection(
         upper_limit_pid = 100 * np.ones(N)
 
         HO_ctrl = PIDController(kp, ki, kd, upper_limit_pid, lower_limit_pid, setpoint)
+    else:
+        raise ValueError(f"HO control type unsupported: {HO}")
 
     controller_dict = {"HO_ctrl": HO_ctrl}
 
@@ -5481,6 +5493,8 @@ def add_controllers_for_MVM_TT_HO(
         upper_limit_pid = 100 * np.ones(zwfs_ns.reco.I2M_HO.shape[0])
 
         HO_ctrl = PIDController(kp, ki, kd, upper_limit_pid, lower_limit_pid, setpoint)
+    else:
+        raise ValueError(f"HO control type unsupported: {HO}")
 
     if TT == "leaky":
         ki = 0 * np.ones(zwfs_ns.reco.I2M_TT.shape[0])
@@ -5505,6 +5519,8 @@ def add_controllers_for_MVM_TT_HO(
 
         TT_ctrl = PIDController(kp, ki, kd, upper_limit_pid, lower_limit_pid, setpoint)
 
+    else:
+        raise ValueError(f"TT control type unsupported: {TT}")
     controller_dict = {"TT_ctrl": TT_ctrl, "HO_ctrl": HO_ctrl}
 
     if not return_controller:  # then we append to the zwfs_ns and return it
@@ -5605,6 +5621,8 @@ def AO_iteration(
             detector=detector,
             use_pyZelda=use_pyZelda,
         )
+        phi = None
+        strehl = None
 
     # kwargs <--- contains controllers , what is required in this dictionary depends on the method used
     delta_cmd = process_zwfs_intensity(
@@ -5669,6 +5687,11 @@ def AO_iteration(
 
 
 class my_lin_fit:
+    act_filt_recommended: NDArray
+    N0_dm: NDArray
+    I0_dm: NDArray
+    pearson_R_dm: NDArray
+
     # Rows are samples, columns are features
     def __init__(self, model_name="pixelwise_first"):
         """
@@ -5702,8 +5725,8 @@ class my_lin_fit:
         Fit the model based on the input features X and target Y.
 
         Parameters:
-        - X: np.ndarray, shape (N, P), input data matrix (N samples, P features)
-        - Y: np.ndarray, shape (N, P), target data matrix (same shape as X)
+        - X: NDArray, shape (N, P), input data matrix (N samples, P features)
+        - Y: NDArray, shape (N, P), target data matrix (same shape as X)
 
         Returns:
         - coe: list of model coefficients for each feature
@@ -5723,14 +5746,15 @@ class my_lin_fit:
         Apply the fitted model to new input data X to make predictions.
 
         Parameters:
-        - X: np.ndarray, input data for which to predict Y.
+        - X: NDArray, input data for which to predict Y.
 
         Returns:
-        - Y_pred: np.ndarray, predicted values based on the fitted models
+        - Y_pred: NDArray, predicted values based on the fitted models
         """
         if self.model_name == "pixelwise_first":
             Y_pred = []
             # Apply the model to each feature
+            assert self.models is not None
             for v in range(len(self.models)):
                 a_i, b_i = self.models[v]
                 if len(X.shape) == 1:
@@ -5747,7 +5771,7 @@ class my_lin_fit:
                     Y_pred.append(a_i * X[:, v] + b_i)
             return np.array(Y_pred).T  # Transpose to match the input shape
         else:
-            return None
+            raise ValueError(f"unsupported model: {self.model_name}")
 
 
 def fit_linear_zonal_model(
@@ -6610,6 +6634,7 @@ def get_frame_polychromatic(
     # else:
     #     intensity = I_rate
     if detector is not None:
+        assert I_rate is not None
         intensity = detect(
             I_rate,
             binning=(detector.binning, detector.binning),
@@ -6642,7 +6667,7 @@ def get_frame_fresnel(
     zwfs_ns,
     detector=None,
     include_shotnoise=True,
-    spectral_bandwidth=_AUTO_SPECTRAL_BANDWIDTH,
+    spectral_bandwidth: Optional[float | str] = _AUTO_SPECTRAL_BANDWIDTH,
     wavelength=None,
     theta=None,
     phasemask_diameter=None,
@@ -7046,6 +7071,7 @@ def get_frame_fresnel_polychromatic(
         else:
             I_density = out
 
+        assert type(I_density) is np.ndarray
         if I_rate is None:
             I_rate = float(weight_nm) * I_density
         else:
@@ -7060,6 +7086,7 @@ def get_frame_fresnel_polychromatic(
     # else:
     #     intensity = I_rate
     if detector is not None:
+        assert I_rate is not None
         intensity = detect(
             I_rate,
             binning=(detector.binning, detector.binning),

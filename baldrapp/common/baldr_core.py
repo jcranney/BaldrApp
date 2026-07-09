@@ -27,7 +27,7 @@ from . import config_helper as cfghelp
 from . import spectrum as spec
 from . import fresnel
 from abc import ABC, abstractmethod
-from typing import Tuple, Optional, Dict
+from typing import Tuple, Optional, Dict, List
 from numpy.typing import NDArray
 
 """
@@ -912,14 +912,8 @@ def roll_screen_on_dm(
             plot_cmd=False,
         )
 
-        opd_current_dm = get_dm_displacement(
-            command_vector=zwfs_ns.dm.current_cmd,
-            gain=zwfs_ns.dm.opd_per_cmd,
-            sigma=zwfs_ns.grid.dm_coord.act_sigma_wavesp,
-            X=zwfs_ns.grid.wave_coord.X,
-            Y=zwfs_ns.grid.wave_coord.Y,
-            x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp,
-            y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp,
+        opd_current_dm = zwfs_ns.compiled_dm.eval(
+            zwfs_ns.dm.current_cmd * zwfs_ns.dm.opd_per_cmd
         )
 
         phi = (
@@ -1112,14 +1106,8 @@ def calibrate_strehl_model(
                 plot_cmd=False,
             )
 
-            opd_current_dm = get_dm_displacement(
-                command_vector=zwfs_ns.dm.current_cmd,
-                gain=zwfs_ns.dm.opd_per_cmd,
-                sigma=zwfs_ns.grid.dm_coord.act_sigma_wavesp,
-                X=zwfs_ns.grid.wave_coord.X,
-                Y=zwfs_ns.grid.wave_coord.Y,
-                x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp,
-                y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp,
+            opd_current_dm = zwfs_ns.compiled_dm.eval(
+                zwfs_ns.dm.current_cmd * zwfs_ns.dm.opd_per_cmd
             )
 
             phi = (
@@ -1920,32 +1908,6 @@ def convert_to_serializable(obj):
         return obj  # Base case: return the object itself if it doesn't need conversion
 
 
-# @njit(parallel=True)
-def get_dm_displacement(command_vector, gain, sigma, X, Y, x0, y0):
-    """_summary_
-
-    Args:
-        command_vector (_type_): _description_
-        gain (float): command to opd for all actuators
-        sigma (1D array): interactuator coupling, length= # actuators
-        X (2D meshgrid): X coordinates of the space you want the DM to be in (e.g. pixel space)
-        Y (2D meshgrid): Y coordinates of the space you want the DM to be in (e.g. pixel space)
-        x0 (1D array): DM actuator x centers in X,Y space length= # actuators
-        y0 (1D array): DM actuator y centers in X,Y space length= # actuators
-
-    Returns:
-        2D array: displancement map of DM in X,Y space
-    """
-    displacement_map = np.zeros(X.shape)
-    for i in range(len(command_vector)):
-        # print(i)
-        displacement_map += gaussian_displacement(
-            c_i=gain * command_vector[i], sigma_i=sigma[i], x=X, y=Y, x0=x0[i], y0=y0[i]
-        )
-
-    return displacement_map
-
-
 ### mft version takes ~ 0.2s per iteration, while fft ~ 8e-3s per iteration even with large padding.. no brainer. dont use mft
 # def get_pupil_intensity_mft(
 #     phi, amp, theta,
@@ -2521,6 +2483,14 @@ def update_dm_registration_wavespace(transform_matrix, zwfs_ns):
     zwfs_ns.grid.dm_coord = dm_coord_ns
     zwfs_ns.dm2wavespace_registration = dm2wavespace_registration_ns
 
+    zwfs_ns.compiled_dm = CompiledDM(
+        zwfs_ns.grid.wave_coord.X,
+        zwfs_ns.grid.wave_coord.Y,
+        np.array(zwfs_ns.grid.dm_coord.act_x0_list_wavesp),
+        np.array(zwfs_ns.grid.dm_coord.act_y0_list_wavesp),
+        np.array(zwfs_ns.grid.dm_coord.act_sigma_wavesp),
+    )
+
     return zwfs_ns
 
 
@@ -2895,24 +2865,9 @@ def test_propagation(zwfs_ns):
     # get the OPD from the DM in the wave space.
     # the only real dynamic thing needed is the current command of the DM
     # zwfs_ns.dm.current_cmd
-    opd_flat_dm = get_dm_displacement(
-        command_vector=zwfs_ns.dm.dm_flat,
-        gain=zwfs_ns.dm.opd_per_cmd,
-        sigma=zwfs_ns.grid.dm_coord.act_sigma_wavesp,
-        X=zwfs_ns.grid.wave_coord.X,
-        Y=zwfs_ns.grid.wave_coord.Y,
-        x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp,
-        y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp,
-    )
-
-    opd_current_dm = get_dm_displacement(
-        command_vector=zwfs_ns.dm.current_cmd,
-        gain=zwfs_ns.dm.opd_per_cmd,
-        sigma=zwfs_ns.grid.dm_coord.act_sigma_wavesp,
-        X=zwfs_ns.grid.wave_coord.X,
-        Y=zwfs_ns.grid.wave_coord.Y,
-        x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp,
-        y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp,
+    opd_flat_dm = zwfs_ns.compiled_dm.eval(zwfs_ns.dm.dm_flat * zwfs_ns.dm.opd_per_cmd)
+    opd_current_dm = zwfs_ns.compiled_dm.eval(
+        zwfs_ns.dm.current_cmd * zwfs_ns.dm.opd_per_cmd
     )
 
     phi_internal = (
@@ -3234,14 +3189,8 @@ def get_I0(
     Returns:
         _type_: field intensity
     """
-    opd_current_dm = get_dm_displacement(
-        command_vector=zwfs_ns.dm.dm_flat,
-        gain=zwfs_ns.dm.opd_per_cmd,
-        sigma=zwfs_ns.grid.dm_coord.act_sigma_wavesp,
-        X=zwfs_ns.grid.wave_coord.X,
-        Y=zwfs_ns.grid.wave_coord.Y,
-        x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp,
-        y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp,
+    opd_current_dm = zwfs_ns.compiled_dm.eval(
+        zwfs_ns.dm.dm_flat * zwfs_ns.dm.opd_per_cmd
     )
 
     opd_map = opd_input + opd_internal + opd_current_dm
@@ -3397,14 +3346,8 @@ def get_N0(
         _type_: field intensity
     """
 
-    opd_current_dm = get_dm_displacement(
-        command_vector=zwfs_ns.dm.dm_flat,
-        gain=zwfs_ns.dm.opd_per_cmd,
-        sigma=zwfs_ns.grid.dm_coord.act_sigma_wavesp,
-        X=zwfs_ns.grid.wave_coord.X,
-        Y=zwfs_ns.grid.wave_coord.Y,
-        x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp,
-        y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp,
+    opd_current_dm = zwfs_ns.compiled_dm.eval(
+        zwfs_ns.dm.dm_flat * zwfs_ns.dm.opd_per_cmd
     )
 
     opd_map = opd_input + opd_internal + opd_current_dm
@@ -3946,14 +3889,17 @@ def estimate_clear_pupil_onsky(
             amp_input = amp_input_0
 
         # --- DM OPD contribution (flat) ---
-        opd_dm = get_dm_displacement(
-            command_vector=zwfs_ns.dm.current_cmd,
-            gain=zwfs_ns.dm.opd_per_cmd,
-            sigma=zwfs_ns.grid.dm_coord.act_sigma_wavesp,
-            X=zwfs_ns.grid.wave_coord.X,
-            Y=zwfs_ns.grid.wave_coord.Y,
-            x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp,
-            y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp,
+        # opd_dm = get_dm_displacement(
+        #     command_vector=zwfs_ns.dm.current_cmd,
+        #     gain=zwfs_ns.dm.opd_per_cmd,
+        #     sigma=zwfs_ns.grid.dm_coord.act_sigma_wavesp,
+        #     X=zwfs_ns.grid.wave_coord.X,
+        #     Y=zwfs_ns.grid.wave_coord.Y,
+        #     x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp,
+        #     y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp,
+        # )
+        opd_dm = zwfs_ns.compiled_dm.eval(
+            zwfs_ns.dm.current_cmd * zwfs_ns.dm.opd_per_cmd
         )
 
         opd_total = opd_input + opd_dm
@@ -4012,14 +3958,8 @@ def get_frame(
     """
 
     # I could do this outside to save time but for now just do it here
-    opd_current_dm = get_dm_displacement(
-        command_vector=zwfs_ns.dm.current_cmd,
-        gain=zwfs_ns.dm.opd_per_cmd,
-        sigma=zwfs_ns.grid.dm_coord.act_sigma_wavesp,
-        X=zwfs_ns.grid.wave_coord.X,
-        Y=zwfs_ns.grid.wave_coord.Y,
-        x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp,
-        y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp,
+    opd_current_dm = zwfs_ns.compiled_dm.eval(
+        zwfs_ns.dm.current_cmd * zwfs_ns.dm.opd_per_cmd
     )
 
     opd_map = opd_input + opd_internal + opd_current_dm
@@ -5567,14 +5507,8 @@ def AO_iteration(
         obs_intermediate_field
     ):  # we onbserve the actual field (only valid in simulation to test results)
         # opd in wavespace
-        opd_current_dm = get_dm_displacement(
-            command_vector=zwfs_ns.dm.current_cmd,
-            gain=zwfs_ns.dm.opd_per_cmd,
-            sigma=zwfs_ns.grid.dm_coord.act_sigma_wavesp,
-            X=zwfs_ns.grid.wave_coord.X,
-            Y=zwfs_ns.grid.wave_coord.Y,
-            x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp,
-            y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp,
+        opd_current_dm = zwfs_ns.compiled_dm.eval(
+            zwfs_ns.dm.current_cmd * zwfs_ns.dm.opd_per_cmd
         )
 
         phi = (
@@ -5803,15 +5737,7 @@ def fit_linear_zonal_model(
         random_seed=1,
     )
 
-    opd_flat_dm = get_dm_displacement(
-        command_vector=zwfs_ns.dm.dm_flat,
-        gain=zwfs_ns.dm.opd_per_cmd,
-        sigma=zwfs_ns.grid.dm_coord.act_sigma_wavesp,
-        X=zwfs_ns.grid.wave_coord.X,
-        Y=zwfs_ns.grid.wave_coord.Y,
-        x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp,
-        y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp,
-    )
+    opd_flat_dm = zwfs_ns.compiled_dm.eval(zwfs_ns.dm.dm_flat * zwfs_ns.dm.opd_per_cmd)
 
     b0_wsp, _ = ztools.create_reference_wave_beyond_pupil_with_aberrations(
         opd_internal + opd_flat_dm,
@@ -5906,14 +5832,8 @@ def fit_linear_zonal_model(
         )
 
         # add BALDR DM OPD (onto wavespace)
-        opd_current_dm = get_dm_displacement(
-            command_vector=zwfs_ns.dm.current_cmd,
-            gain=zwfs_ns.dm.opd_per_cmd,
-            sigma=zwfs_ns.grid.dm_coord.act_sigma_wavesp,
-            X=zwfs_ns.grid.wave_coord.X,
-            Y=zwfs_ns.grid.wave_coord.Y,
-            x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp,
-            y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp,
+        opd_current_dm = zwfs_ns.compiled_dm.eval(
+            zwfs_ns.dm.current_cmd * zwfs_ns.dm.opd_per_cmd
         )
 
         # sum all opd contributions in the Baldr input pupil plane
@@ -6706,14 +6626,8 @@ def get_frame_fresnel(
 
     pupil = zwfs_ns.grid.pupil_mask
 
-    opd_current_dm = get_dm_displacement(
-        command_vector=zwfs_ns.dm.current_cmd,
-        gain=zwfs_ns.dm.opd_per_cmd,
-        sigma=zwfs_ns.grid.dm_coord.act_sigma_wavesp,
-        X=zwfs_ns.grid.wave_coord.X,
-        Y=zwfs_ns.grid.wave_coord.Y,
-        x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp,
-        y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp,
+    opd_current_dm = zwfs_ns.compiled_dm.eval(
+        zwfs_ns.dm.current_cmd * zwfs_ns.dm.opd_per_cmd
     )
 
     opd_total = pupil * (opd_input + opd_internal + opd_current_dm)
@@ -7303,3 +7217,98 @@ def get_frame_configured(
         spectral_bandwidth=spectral_bandwidth,
         use_pyZelda=use_pyZelda,
     )
+
+
+class Actuator(ABC):
+    @abstractmethod
+    def sample(self, x: float, y: float) -> float:
+        pass
+
+    @abstractmethod
+    def sample_vec(self, xx: NDArray, yy: NDArray) -> NDArray:
+        pass
+
+    def evaluate(self, com: float, xx: NDArray, yy: NDArray) -> NDArray:
+        zz = com * self.sample_vec(xx.flatten(), yy.flatten())
+        return zz.reshape(xx.shape)
+
+
+class DM(ABC):
+    @abstractmethod
+    def actuator(self, idx: int) -> Actuator:
+        pass
+
+    @property
+    @abstractmethod
+    def nact(self) -> int:
+        pass
+
+    def sample(self, command: NDArray, x: float, y: float) -> float:
+        z: float = 0.0
+        for i in range(self.nact):
+            z += command[i] * self.actuator(i).sample(x, y)
+        return z
+
+    def evaluate(self, command: NDArray, xx: NDArray, yy: NDArray) -> NDArray:
+        zz = (xx * 0.0).flatten()
+        for i, (x, y) in enumerate(zip(xx.ravel(), yy.ravel())):
+            zz[i] += self.sample(command, x, y)
+        return zz.reshape(xx.shape)
+
+
+class GaussianActuator(Actuator):
+    sigma: float
+    x0: float
+    y0: float
+
+    def __init__(self, sigma: float, x0: float, y0: float):
+        self.sigma = sigma
+        self.x0 = x0
+        self.y0 = y0
+
+    def sample(self, x: float, y: float) -> float:
+        return np.exp(-((x - self.x0) ** 2 + (y - self.y0) ** 2) / self.sigma**2)
+
+    def sample_vec(
+        self,
+        xx: NDArray,
+        yy: NDArray,
+    ) -> NDArray:
+        return np.exp(-((xx - self.x0) ** 2 + (yy - self.y0) ** 2) / self.sigma**2)
+
+
+class GaussianDM(DM):
+    _nact: int
+    actuators: List[GaussianActuator]
+
+    def __init__(self, x0: NDArray, y0: NDArray, sigma: NDArray):
+        self._nact = x0.shape[0]
+        actuators: List[GaussianActuator] = []
+        for x, y, sig in zip(x0, y0, sigma):
+            actuators.append(GaussianActuator(sig, x, y))
+        self.actuators = actuators
+
+    @property
+    def nact(self) -> int:
+        return self._nact
+
+    def actuator(self, idx: int) -> Actuator:
+        return self.actuators[idx]
+
+
+class CompiledDM(GaussianDM):
+    """This object constructs the DM based on static parameters, and allows
+    efficient evaluation (once initialised)"""
+
+    influ: NDArray  # array of influence functions (nact, ncoordx, ncoordy)
+
+    def __init__(self, xx: NDArray, yy: NDArray, *args, **kwargs):
+        """"""
+        super().__init__(*args, **kwargs)
+        influ = []
+        for c in range(self.nact):
+            influ.append(self.actuator(c).evaluate(1.0, xx, yy))
+        self.influ = np.array(influ)
+
+    def eval(self, com: NDArray) -> NDArray:
+        return np.einsum("i...,i->...", self.influ, com)

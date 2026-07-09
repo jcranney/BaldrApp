@@ -26,7 +26,7 @@ set -euo pipefail
 # --- Config ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GIT_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
-VENV_PATH="${GIT_ROOT}/venv/bin/activate"
+VENV_PATH="${GIT_ROOT}/.venv/bin/activate"
 
 cd "$SCRIPT_DIR"
 

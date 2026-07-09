@@ -1571,7 +1571,7 @@ while True:
         mds_socket.send_string(f"fpm_whereami {beam}")
         mask_name = mds_socket.recv_string().strip()
 
-        if mask_name != last_mask_name[beam]:
+        if mask_name != last_mask_name.get(beam, None):
             set_phase_mask_state(
                 zwfs=zwfs_ns[beam],
                 mask_name=mask_name,

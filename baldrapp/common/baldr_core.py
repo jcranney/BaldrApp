@@ -24,6 +24,9 @@ from . import DM_registration
 from . import config_helper as cfghelp
 from . import spectrum as spec
 from . import fresnel
+from abc import ABC, abstractmethod
+from typing import Tuple, Optional, Dict, List
+from numpy.typing import NDArray
 
 """
 1/11/25 - updated get_pupil_intensity to use fft and not mft for speed, added coldstop diam and coldstop_offset as input argunments removes and remove precomupted mask 
@@ -831,10 +834,11 @@ def roll_screen_on_dm( zwfs_ns,  Nmodes_removed, ph_scale = 0.2,  actuators_per_
         #scaling_factor=0.05, drop_indicies = [0, 11, 11 * 12, -1] , plot_cmd=False
         zwfs_ns.dm.current_cmd =  util.create_phase_screen_cmd_for_DM(scrn,  scaling_factor=ph_scale , drop_indicies = [0, 11, 11 * 12, -1] , plot_cmd=False) 
         
-        opd_current_dm = get_dm_displacement( command_vector= zwfs_ns.dm.current_cmd   , gain=zwfs_ns.dm.opd_per_cmd, \
-            sigma= zwfs_ns.grid.dm_coord.act_sigma_wavesp, X=zwfs_ns.grid.wave_coord.X, Y=zwfs_ns.grid.wave_coord.Y,\
-                x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp, y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp )
-        
+
+        opd_current_dm = zwfs_ns.compiled_dm.eval(
+            zwfs_ns.dm.current_cmd * zwfs_ns.dm.opd_per_cmd
+        )
+
         phi = zwfs_ns.grid.pupil_mask  *  2*np.pi / zwfs_ns.optics.wvl0 * (  opd_current_dm   )
         
         pupil_disk_cropped, atm_in_pupil = util.crop_pupil(pupil_disk, phi)
@@ -965,10 +969,10 @@ def calibrate_strehl_model( zwfs_ns, save_results_path = None, train_fraction = 
             #scaling_factor=0.05, drop_indicies = [0, 11, 11 * 12, -1] , plot_cmd=False
             zwfs_ns.dm.current_cmd =  util.create_phase_screen_cmd_for_DM(scrn_list[it],  scaling_factor=ph_scale , drop_indicies = [0, 11, 11 * 12, -1] , plot_cmd=False) 
         
-            opd_current_dm = get_dm_displacement( command_vector= zwfs_ns.dm.current_cmd   , gain=zwfs_ns.dm.opd_per_cmd, \
-                sigma= zwfs_ns.grid.dm_coord.act_sigma_wavesp, X=zwfs_ns.grid.wave_coord.X, Y=zwfs_ns.grid.wave_coord.Y,\
-                    x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp, y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp )
-            
+            opd_current_dm = zwfs_ns.compiled_dm.eval(
+                zwfs_ns.dm.current_cmd * zwfs_ns.dm.opd_per_cmd
+            )
+
             phi = zwfs_ns.grid.pupil_mask  *  2*np.pi / zwfs_ns.optics.wvl0 * (  opd_current_dm  )
             
             pupil_disk_cropped, atm_in_pupil = util.crop_pupil(pupil_disk, phi)
@@ -2564,7 +2568,15 @@ def update_dm_registration_wavespace( transform_matrix, zwfs_ns ):
     # Add DM and wave coorindates to grid namespace 
     zwfs_ns.grid.dm_coord = dm_coord_ns
     zwfs_ns.dm2wavespace_registration = dm2wavespace_registration_ns
-    
+
+    zwfs_ns.compiled_dm = CompiledDM(
+        zwfs_ns.grid.wave_coord.X,
+        zwfs_ns.grid.wave_coord.Y,
+        np.array(zwfs_ns.grid.dm_coord.act_x0_list_wavesp),
+        np.array(zwfs_ns.grid.dm_coord.act_y0_list_wavesp),
+        np.array(zwfs_ns.grid.dm_coord.act_sigma_wavesp),
+    )
+
     return zwfs_ns
     
 
@@ -2844,14 +2856,10 @@ def test_propagation( zwfs_ns ):
     # get the OPD from the DM in the wave space.
     # the only real dynamic thing needed is the current command of the DM 
     # zwfs_ns.dm.current_cmd
-    opd_flat_dm = get_dm_displacement( command_vector= zwfs_ns.dm.dm_flat , gain=zwfs_ns.dm.opd_per_cmd, \
-        sigma= zwfs_ns.grid.dm_coord.act_sigma_wavesp, X=zwfs_ns.grid.wave_coord.X, Y=zwfs_ns.grid.wave_coord.Y,\
-            x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp, y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp )
-
-    opd_current_dm = get_dm_displacement( command_vector= zwfs_ns.dm.current_cmd   , gain=zwfs_ns.dm.opd_per_cmd, \
-        sigma= zwfs_ns.grid.dm_coord.act_sigma_wavesp, X=zwfs_ns.grid.wave_coord.X, Y=zwfs_ns.grid.wave_coord.Y,\
-            x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp, y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp )
-
+    opd_flat_dm = zwfs_ns.compiled_dm.eval(zwfs_ns.dm.dm_flat * zwfs_ns.dm.opd_per_cmd)
+    opd_current_dm = zwfs_ns.compiled_dm.eval(
+        zwfs_ns.dm.current_cmd * zwfs_ns.dm.opd_per_cmd
+    )
 
     phi_internal = 2*np.pi / zwfs_ns.optics.wvl0 * ( opd_internal + opd_flat_dm  ) # phi_atm , phi_dm are in opd
 
@@ -3116,10 +3124,10 @@ def get_I0(  opd_input,  amp_input, opd_internal,  zwfs_ns, detector=None, inclu
     Returns:
         _type_: field intensity 
     """
-    opd_current_dm = get_dm_displacement( command_vector = zwfs_ns.dm.dm_flat  , gain=zwfs_ns.dm.opd_per_cmd, \
-        sigma= zwfs_ns.grid.dm_coord.act_sigma_wavesp, X=zwfs_ns.grid.wave_coord.X, Y=zwfs_ns.grid.wave_coord.Y,\
-            x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp, y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp )
-    
+    opd_current_dm = zwfs_ns.compiled_dm.eval(
+        zwfs_ns.dm.dm_flat * zwfs_ns.dm.opd_per_cmd
+    )
+
     opd_map = (opd_input + opd_internal + opd_current_dm )
     
     if use_pyZelda and (not hasattr( zwfs_ns, 'pyZelda')):
@@ -3242,10 +3250,10 @@ def get_N0( opd_input,  amp_input ,  opd_internal,  zwfs_ns , detector=None, inc
         _type_: field intensity 
     """
 
-    opd_current_dm = get_dm_displacement( command_vector= zwfs_ns.dm.dm_flat   , gain=zwfs_ns.dm.opd_per_cmd, \
-        sigma= zwfs_ns.grid.dm_coord.act_sigma_wavesp, X=zwfs_ns.grid.wave_coord.X, Y=zwfs_ns.grid.wave_coord.Y,\
-            x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp, y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp )
-        
+    opd_current_dm = zwfs_ns.compiled_dm.eval(
+        zwfs_ns.dm.dm_flat * zwfs_ns.dm.opd_per_cmd
+    )
+
     opd_map = opd_input + opd_internal + opd_current_dm 
         
     if use_pyZelda and (not hasattr( zwfs_ns, 'pyZelda')):
@@ -3725,14 +3733,8 @@ def estimate_clear_pupil_onsky(
             amp_input = amp_input_0
 
         # --- DM OPD contribution (flat) ---
-        opd_dm = get_dm_displacement(
-            command_vector=zwfs_ns.dm.current_cmd,
-            gain=zwfs_ns.dm.opd_per_cmd,
-            sigma=zwfs_ns.grid.dm_coord.act_sigma_wavesp,
-            X=zwfs_ns.grid.wave_coord.X,
-            Y=zwfs_ns.grid.wave_coord.Y,
-            x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp,
-            y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp,
+        opd_dm = zwfs_ns.compiled_dm.eval(
+            zwfs_ns.dm.current_cmd * zwfs_ns.dm.opd_per_cmd
         )
 
         opd_total = opd_input + opd_dm
@@ -3795,10 +3797,10 @@ def get_frame(
 
 
     # I could do this outside to save time but for now just do it here
-    opd_current_dm = get_dm_displacement( command_vector= zwfs_ns.dm.current_cmd   , gain=zwfs_ns.dm.opd_per_cmd, \
-            sigma= zwfs_ns.grid.dm_coord.act_sigma_wavesp, X=zwfs_ns.grid.wave_coord.X, Y=zwfs_ns.grid.wave_coord.Y,\
-                x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp, y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp )
-            
+    opd_current_dm = zwfs_ns.compiled_dm.eval(
+        zwfs_ns.dm.current_cmd * zwfs_ns.dm.opd_per_cmd
+    )
+
     opd_map = opd_input + opd_internal + opd_current_dm
     
     if use_pyZelda and (not hasattr( zwfs_ns, 'pyZelda')):
@@ -5096,10 +5098,10 @@ def AO_iteration( opd_input, amp_input, opd_internal, zwfs_ns, dm_disturbance = 
 
     if obs_intermediate_field: # we onbserve the actual field (only valid in simulation to test results)
         # opd in wavespace 
-        opd_current_dm = get_dm_displacement( command_vector= zwfs_ns.dm.current_cmd   , gain=zwfs_ns.dm.opd_per_cmd, \
-            sigma= zwfs_ns.grid.dm_coord.act_sigma_wavesp, X=zwfs_ns.grid.wave_coord.X, Y=zwfs_ns.grid.wave_coord.Y,\
-                x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp, y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp )
-        
+        opd_current_dm = zwfs_ns.compiled_dm.eval(
+            zwfs_ns.dm.current_cmd * zwfs_ns.dm.opd_per_cmd
+        )
+
         phi = zwfs_ns.grid.pupil_mask  *  2*np.pi / zwfs_ns.optics.wvl0 * ( opd_input + opd_internal + opd_current_dm  )
 
         #
@@ -5278,11 +5280,7 @@ def fit_linear_zonal_model( zwfs_ns, opd_internal, iterations = 100, photon_flux
     # This screen is to put on the DM : assumes diameter covers entire DM - encoded in pixelscale
     scrn = phasescreens.PhaseScreenKolmogorov(nx_size=2*zwfs_ns.dm.Nact_x, pixel_scale=zwfs_ns.grid.D / (2*zwfs_ns.dm.Nact_x), r0=zwfs_ns.atmosphere.r0, L0=zwfs_ns.atmosphere.l0, random_seed=1)
 
-    opd_flat_dm = get_dm_displacement( command_vector= zwfs_ns.dm.dm_flat  , gain=zwfs_ns.dm.opd_per_cmd, \
-                sigma= zwfs_ns.grid.dm_coord.act_sigma_wavesp, X=zwfs_ns.grid.wave_coord.X, Y=zwfs_ns.grid.wave_coord.Y,\
-                    x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp, y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp )
-    
-    
+    opd_flat_dm = zwfs_ns.compiled_dm.eval(zwfs_ns.dm.dm_flat * zwfs_ns.dm.opd_per_cmd)
     b0_wsp, _ = ztools.create_reference_wave_beyond_pupil_with_aberrations(opd_internal + opd_flat_dm , zwfs_ns.pyZelda.mask_diameter, zwfs_ns.pyZelda.mask_depth, zwfs_ns.pyZelda.mask_substrate, zwfs_ns.pyZelda.mask_Fratio,
                                        zwfs_ns.pyZelda.pupil_diameter, zwfs_ns.pyZelda.pupil, zwfs_ns.optics.wvl0, clear=np.array([]), \
                                        sign_mask=np.array([]), cpix=False)
@@ -5339,10 +5337,9 @@ def fit_linear_zonal_model( zwfs_ns, opd_internal, iterations = 100, photon_flux
         zwfs_ns.dm.current_cmd =  util.create_phase_screen_cmd_for_DM( scrn,  scaling_factor= phase_scaling_factor, drop_indicies = [0, 11, 11 * 12, -1] , plot_cmd=False) 
 
         # add BALDR DM OPD (onto wavespace)
-        opd_current_dm = get_dm_displacement( command_vector= zwfs_ns.dm.current_cmd   , gain=zwfs_ns.dm.opd_per_cmd, \
-                    sigma= zwfs_ns.grid.dm_coord.act_sigma_wavesp, X=zwfs_ns.grid.wave_coord.X, Y=zwfs_ns.grid.wave_coord.Y,\
-                        x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp, y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp )
-        
+        opd_current_dm = zwfs_ns.compiled_dm.eval(
+            zwfs_ns.dm.current_cmd * zwfs_ns.dm.opd_per_cmd
+        )
         # sum all opd contributions in the Baldr input pupil plane 
         bldr_opd_map = np.sum( [  opd_internal, opd_current_dm ] , axis=0)
 
@@ -6112,14 +6109,8 @@ def get_frame_fresnel(
 
     pupil = zwfs_ns.grid.pupil_mask
 
-    opd_current_dm = get_dm_displacement(
-        command_vector=zwfs_ns.dm.current_cmd,
-        gain=zwfs_ns.dm.opd_per_cmd,
-        sigma=zwfs_ns.grid.dm_coord.act_sigma_wavesp,
-        X=zwfs_ns.grid.wave_coord.X,
-        Y=zwfs_ns.grid.wave_coord.Y,
-        x0=zwfs_ns.grid.dm_coord.act_x0_list_wavesp,
-        y0=zwfs_ns.grid.dm_coord.act_y0_list_wavesp,
+    opd_current_dm = zwfs_ns.compiled_dm.eval(
+        zwfs_ns.dm.current_cmd * zwfs_ns.dm.opd_per_cmd
     )
 
     opd_total = pupil * (opd_input + opd_internal + opd_current_dm)
@@ -6868,3 +6859,97 @@ def get_frame_configured(
 #     # GET SIGNAL (FUNCTION)
 #     #   
 
+
+class Actuator(ABC):
+    @abstractmethod
+    def sample(self, x: float, y: float) -> float:
+        pass
+
+    @abstractmethod
+    def sample_vec(self, xx: NDArray, yy: NDArray) -> NDArray:
+        pass
+
+    def evaluate(self, com: float, xx: NDArray, yy: NDArray) -> NDArray:
+        zz = com * self.sample_vec(xx.flatten(), yy.flatten())
+        return zz.reshape(xx.shape)
+
+
+class DM(ABC):
+    @abstractmethod
+    def actuator(self, idx: int) -> Actuator:
+        pass
+
+    @property
+    @abstractmethod
+    def nact(self) -> int:
+        pass
+
+    def sample(self, command: NDArray, x: float, y: float) -> float:
+        z: float = 0.0
+        for i in range(self.nact):
+            z += command[i] * self.actuator(i).sample(x, y)
+        return z
+
+    def evaluate(self, command: NDArray, xx: NDArray, yy: NDArray) -> NDArray:
+        zz = (xx * 0.0).flatten()
+        for i, (x, y) in enumerate(zip(xx.ravel(), yy.ravel())):
+            zz[i] += self.sample(command, x, y)
+        return zz.reshape(xx.shape)
+
+
+class GaussianActuator(Actuator):
+    sigma: float
+    x0: float
+    y0: float
+
+    def __init__(self, sigma: float, x0: float, y0: float):
+        self.sigma = sigma
+        self.x0 = x0
+        self.y0 = y0
+
+    def sample(self, x: float, y: float) -> float:
+        return np.exp(-((x - self.x0) ** 2 + (y - self.y0) ** 2) / self.sigma**2)
+
+    def sample_vec(
+        self,
+        xx: NDArray,
+        yy: NDArray,
+    ) -> NDArray:
+        return np.exp(-((xx - self.x0) ** 2 + (yy - self.y0) ** 2) / self.sigma**2)
+
+
+class GaussianDM(DM):
+    _nact: int
+    actuators: List[GaussianActuator]
+
+    def __init__(self, x0: NDArray, y0: NDArray, sigma: NDArray):
+        self._nact = x0.shape[0]
+        actuators: List[GaussianActuator] = []
+        for x, y, sig in zip(x0, y0, sigma):
+            actuators.append(GaussianActuator(sig, x, y))
+        self.actuators = actuators
+
+    @property
+    def nact(self) -> int:
+        return self._nact
+
+    def actuator(self, idx: int) -> Actuator:
+        return self.actuators[idx]
+
+
+class CompiledDM(GaussianDM):
+    """This object constructs the DM based on static parameters, and allows
+    efficient evaluation (once initialised)"""
+
+    influ: NDArray  # array of influence functions (nact, ncoordx, ncoordy)
+
+    def __init__(self, xx: NDArray, yy: NDArray, *args, **kwargs):
+        """"""
+        super().__init__(*args, **kwargs)
+        influ = []
+        for c in range(self.nact):
+            influ.append(self.actuator(c).evaluate(1.0, xx, yy))
+        self.influ = np.array(influ)
+
+    def eval(self, com: NDArray) -> NDArray:
+        return np.einsum("i...,i->...", self.influ, com)

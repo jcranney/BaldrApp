@@ -393,21 +393,9 @@ class PhaseScreen(object):
         Calculates the seperations between the phase points in the stencil and the new phase vector
         """
         positions = numpy.append(self.stencil_positions, self.X_positions, axis=0)
-        self.seperations = numpy.zeros((len(positions), len(positions)))
-
-        #if numba:
-        #    calc_seperations_fast(positions, self.seperations)
-        if 1: #else:
-            for i, (x1, y1) in enumerate(positions):
-                for j, (x2, y2) in enumerate(positions):
-                    delta_x = x2 - x1
-                    delta_y = y2 - y1
-
-                    delta_r = numpy.sqrt(delta_x ** 2 + delta_y ** 2)
-
-                    self.seperations[i, j] = delta_r
-
-
+        self.seperations  = (
+            (positions[None,:,:] - positions[:,None,:])**2
+        ).sum(axis=2)**0.5
 
     def make_covmats(self):
         """

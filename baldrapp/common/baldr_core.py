@@ -27,7 +27,7 @@ from . import config_helper as cfghelp
 from . import spectrum as spec
 from . import fresnel
 from abc import ABC, abstractmethod
-from typing import Tuple, Optional, Dict, List
+from typing import Tuple, Optional, Dict, List, Any
 from numpy.typing import NDArray
 
 """
@@ -2162,6 +2162,9 @@ def get_zwfs_output_field(
             pix_per_wvld = float(pixels_across_mask)
 
     else:
+        # THIS BRANCH IS SUPER SLOW AND GETS CALLED MULTIPLE TIMES PER
+        # ITERATION, IS IT POSSIBLE TO DEFINE `pix_per_wvld` AND `phase_disc`
+        # ONCE AND PASS IT IN TO THIS FUNCTION?
         # Infer pixels per lambda/D from the padded pupil support.
         amp_pad = np.zeros((Nf, Nf), dtype=float)
         amp_pad[pad : pad + N, pad : pad + N] = np.abs(amp_work)
@@ -2181,6 +2184,7 @@ def get_zwfs_output_field(
 
         r_mask_pix = 0.5 * float(phasemask_diameter) * pix_per_wvld
         phase_disc = (rr <= r_mask_pix).astype(float)
+        
 
     # Reference wave b = IFFT{M FFT{psi_A}}.
     b_pad = np.fft.fftshift(

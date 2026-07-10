@@ -1484,9 +1484,8 @@ if source_profiles is not None:
         flush=True,
     )
 
-
 while True:
-
+    time_at_start = time.time()
     poll_control_socket(
         control_socket=control_socket,
         sim_control=sim_control,
@@ -1740,7 +1739,11 @@ while True:
         if sim_control["sleep_time_s"] is None
         else float(sim_control["sleep_time_s"])
     )
-    time.sleep(sleep_this_frame_s)
+    # we don't want to sleep, but we want to limit the loop period
+    # time.sleep(sleep_this_frame_s)
+    duration_so_far = time.time() - time_at_start
+    if duration_so_far < sleep_this_frame_s:
+        time.sleep(sleep_this_frame_s - duration_so_far)
     global_frame_shm.post_sems(1)
 
     liveindex += 1

@@ -48,3 +48,8 @@ include = ["baldrapp", "baldrapp.*"]
 
 [tool.uv.sources]
 pyzelda = { git = "https://github.com/courtney-barrer/pyZELDA#egg=b42aaea5c8a47026783a15391df5e058360ea15e" }
+
+[dependency-groups]
+dev = [
+    "flameprof>=0.4",
+]

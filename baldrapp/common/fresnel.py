@@ -21,7 +21,7 @@ from __future__ import annotations
 from typing import Literal, Optional, Tuple
 
 import numpy as np
-
+from functools import lru_cache
 
 ArrayLike = np.ndarray
 NormalizationMode = Optional[Literal["peak", "sum"]]
@@ -31,6 +31,7 @@ NormalizationMode = Optional[Literal["peak", "sum"]]
 # Coordinate / frequency grids
 # ============================================================
 
+@lru_cache(maxsize=None)
 def make_coordinate_grid(
     shape: Tuple[int, int],
     dx: float,
@@ -64,7 +65,7 @@ def make_coordinate_grid(
 
     return np.meshgrid(x, y, indexing=indexing)
 
-
+@lru_cache(maxsize=None)
 def make_frequency_grid(
     shape: Tuple[int, int],
     dx: float,
@@ -90,6 +91,7 @@ def make_frequency_grid(
 # Transfer functions
 # ============================================================
 
+@lru_cache(maxsize=None)
 def angular_spectrum_transfer_function(
     shape: Tuple[int, int],
     wavelength: float,
@@ -157,7 +159,7 @@ def angular_spectrum_transfer_function(
 
     return np.exp(1j * (kz - k) * z)
 
-
+@lru_cache(maxsize=None)
 def fresnel_transfer_function(
     shape: Tuple[int, int],
     wavelength: float,
@@ -294,7 +296,7 @@ def propagate(
 # ============================================================
 # Simple optical elements
 # ============================================================
-
+@lru_cache(maxsize=None)
 def thin_lens_phase(
     shape: Tuple[int, int],
     wavelength: float,
@@ -342,7 +344,7 @@ def apply_thin_lens(
         center=center,
     )
 
-
+@lru_cache(maxsize=None)
 def circular_aperture(
     shape: Tuple[int, int],
     dx: float,
@@ -654,6 +656,83 @@ def assert_energy_conserved(
 # ============================================================
 # Scaled Fresnel / focal-plane transforms
 # ============================================================
+@lru_cache(maxsize=None)
+def fresnel_prepare(
+    field_shape: Tuple[int, int],
+    wavelength: float,
+    dx: float,
+    z: float,
+    dy: Optional[float] = None,
+    include_global_phase: bool = True,
+) -> Tuple[np.ndarray, np.ndarray, float, float, float]:
+    """
+    One-step Fresnel propagation with scaled output sampling.
+
+    Unlike fresnel_transfer_function_propagate, this method does not keep the
+    same input/output pixel scale. The output sampling is:
+
+        dx_out = wavelength * z / (N_x * dx)
+        dy_out = wavelength * z / (N_y * dy)
+
+    This is useful for propagating to a focal plane, where the natural sampling
+    is Fourier-transform sampling.
+
+    Parameters
+    ----------
+    field:
+        Input complex field.
+    wavelength:
+        Wavelength [m].
+    dx, dy:
+        Input-plane pixel scales [m/pixel].
+    z:
+        Propagation distance [m].
+    include_global_phase:
+        If True, include exp(i k z) / (i lambda z). Usually irrelevant for
+        intensity-only calculations.
+
+    Returns
+    -------
+    field_out:
+        Propagated complex field.
+    dx_out, dy_out:
+        Output-plane pixel scales [m/pixel].
+    """
+    if dy is None:
+        dy = dx
+
+    ny, nx = field_shape
+
+    k = 2.0 * np.pi / wavelength
+
+    # Input coordinates
+    X1, Y1 = make_coordinate_grid(field_shape, dx, dy)
+
+    # Output sampling
+    dx_out = wavelength * abs(z) / (nx * dx)
+    dy_out = wavelength * abs(z) / (ny * dy)
+
+    X2, Y2 = make_coordinate_grid(field_shape, dx_out, dy_out)
+
+    # Fresnel one-step form:
+    #
+    # U2(x2,y2) = exp(ikz)/(i lambda z)
+    #             exp[i k/(2z) (x2^2+y2^2)]
+    #             FFT{ U1(x1,y1) exp[i k/(2z)(x1^2+y1^2)] } dx dy
+    #
+    # With centred FFT bookkeeping.
+    quad_in = np.exp(1j * k * (X1**2 + Y1**2) / (2.0 * z))
+    quad_out = np.exp(1j * k * (X2**2 + Y2**2) / (2.0 * z))
+    
+    prefactor = (dx * dy) / (1j * wavelength * z)
+
+    if include_global_phase:
+        prefactor *= np.exp(1j * k * z)
+
+    quad_out = prefactor * quad_out
+
+    return quad_in, quad_out, k, dx_out, dy_out
+
 
 def fresnel_one_step_propagate(
     field: ArrayLike,
@@ -696,45 +775,18 @@ def fresnel_one_step_propagate(
     dx_out, dy_out:
         Output-plane pixel scales [m/pixel].
     """
+    field = np.asarray(field, dtype=complex)
     if dy is None:
         dy = dx
-
-    field = np.asarray(field, dtype=complex)
-    ny, nx = field.shape
-
-    k = 2.0 * np.pi / wavelength
-
-    # Input coordinates
-    X1, Y1 = make_coordinate_grid(field.shape, dx, dy)
-
-    # Output sampling
-    dx_out = wavelength * abs(z) / (nx * dx)
-    dy_out = wavelength * abs(z) / (ny * dy)
-
-    X2, Y2 = make_coordinate_grid(field.shape, dx_out, dy_out)
-
-    # Fresnel one-step form:
-    #
-    # U2(x2,y2) = exp(ikz)/(i lambda z)
-    #             exp[i k/(2z) (x2^2+y2^2)]
-    #             FFT{ U1(x1,y1) exp[i k/(2z)(x1^2+y1^2)] } dx dy
-    #
-    # With centred FFT bookkeeping.
-    quad_in = np.exp(1j * k * (X1**2 + Y1**2) / (2.0 * z))
-    quad_out = np.exp(1j * k * (X2**2 + Y2**2) / (2.0 * z))
-
+    quad_in, quad_out, k, dx_out, dy_out = fresnel_prepare(field.shape, wavelength, dx, z, dy, include_global_phase)
+    
     spectrum = np.fft.fftshift(
         np.fft.fft2(
             np.fft.ifftshift(field * quad_in)
         )
     )
 
-    prefactor = (dx * dy) / (1j * wavelength * z)
-
-    if include_global_phase:
-        prefactor *= np.exp(1j * k * z)
-
-    field_out = prefactor * quad_out * spectrum
+    field_out = quad_out * spectrum
 
     return field_out, dx_out, dy_out
 
